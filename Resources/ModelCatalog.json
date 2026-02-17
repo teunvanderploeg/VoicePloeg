@@ -1,0 +1,29 @@
+[
+  {
+    "id": "ggml-tiny.en-q5_1",
+    "displayName": "Whisper tiny.en q5_1",
+    "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
+    "sha256": "UNVERIFIED",
+    "sizeBytes": 77819424,
+    "languageSupport": ["en"],
+    "quantization": "q5_1"
+  },
+  {
+    "id": "ggml-base.en-q5_1",
+    "displayName": "Whisper base.en q5_1",
+    "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
+    "sha256": "UNVERIFIED",
+    "sizeBytes": 147951360,
+    "languageSupport": ["en"],
+    "quantization": "q5_1"
+  },
+  {
+    "id": "ggml-base-q5_1",
+    "displayName": "Whisper base multilingual q5_1",
+    "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+    "sha256": "UNVERIFIED",
+    "sizeBytes": 151419904,
+    "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
+    "quantization": "q5_1"
+  }
+]

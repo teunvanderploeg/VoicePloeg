@@ -1,0 +1,71 @@
+import SwiftUI
+
+struct MenuBarRoot: View {
+    @ObservedObject var coordinator: AppCoordinator
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Circle()
+                    .fill(colorForState(coordinator.state))
+                    .frame(width: 10, height: 10)
+                Text(coordinator.state.title)
+                    .font(.headline)
+            }
+
+            Button(action: {
+                Task { await coordinator.toggleRecording() }
+            }) {
+                Text(buttonTitle)
+            }
+            .keyboardShortcut(.space, modifiers: [.control, .option])
+
+            if !coordinator.lastTranscript.isEmpty {
+                Text("Last transcript")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(coordinator.lastTranscript)
+                    .font(.caption)
+                    .lineLimit(3)
+            }
+
+            Divider()
+
+            Button("Settings") {
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
+            }
+
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        .padding(12)
+        .frame(width: 320)
+    }
+
+    private var buttonTitle: String {
+        switch coordinator.state {
+        case .idle, .error:
+            return "Start Recording"
+        case .listening:
+            return "Stop & Transcribe"
+        case .processing:
+            return "Processing..."
+        }
+    }
+
+    private func colorForState(_ state: AppState) -> Color {
+        switch state {
+        case .idle:
+            return .gray
+        case .listening:
+            return .red
+        case .processing:
+            return .orange
+        case .error:
+            return .yellow
+        }
+    }
+}
