@@ -157,6 +157,19 @@ final class AppCoordinator: ObservableObject {
         permissionController.openAccessibilitySettings()
     }
 
+    func copyTranscriptToClipboard(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(trimmed, forType: .string)
+    }
+
+    func clearTranscriptHistory() {
+        settings.clearTranscriptHistory()
+    }
+
     func downloadSelectedModel() async {
         guard let item = modelManager.catalog.first(where: { $0.id == settings.selectedModelID }) else {
             state = .error(message: UserFacingMessage.selectedModelNotFound)
@@ -221,7 +234,9 @@ final class AppCoordinator: ObservableObject {
             let result = try await transcriber.transcribe(samples: samples, language: language)
 
             lastTranscript = result.text
-            if !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmedTranscript = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedTranscript.isEmpty {
+                settings.addTranscriptToHistory(trimmedTranscript, maxItems: ReleaseConfig.maxTranscriptHistoryItems)
                 await activateOutputTargetAppIfNeeded()
                 _ = try await textOutputController.insert(result.text)
             }

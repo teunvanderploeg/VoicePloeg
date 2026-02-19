@@ -70,7 +70,7 @@ final class ActiveAppTextOutputController: TextOutputController {
         guard CFGetTypeID(focusedObject) == AXUIElementGetTypeID() else {
             return false
         }
-        let focusedElement = unsafeBitCast(focusedObject, to: AXUIElement.self)
+        let focusedElement = unsafeDowncast(focusedObject, to: AXUIElement.self)
 
         let selectedStatus = AXUIElementSetAttributeValue(
             focusedElement,

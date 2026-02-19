@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var coordinator: AppCoordinator
     @State private var showDiagnostics = false
+    @State private var copiedTranscriptID: UUID?
 
     var body: some View {
         ZStack {
@@ -32,6 +33,7 @@ struct SettingsView: View {
                         languageCard
                         hotkeyCard
                         whisperCard
+                        historyCard
                     }
                 }
                 .padding(20)
@@ -231,6 +233,79 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var historyCard: some View {
+        SettingsCard(title: "History", systemImage: "clock.arrow.circlepath") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("\(coordinator.settings.transcriptHistory.count) saved", systemImage: "text.bubble")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Clear History") {
+                        coordinator.clearTranscriptHistory()
+                        copiedTranscriptID = nil
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(coordinator.settings.transcriptHistory.isEmpty)
+                }
+
+                if coordinator.settings.transcriptHistory.isEmpty {
+                    ContentUnavailableView(
+                        "No transcripts yet",
+                        systemImage: "waveform.and.magnifyingglass",
+                        description: Text("Your latest transcriptions will show up here.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(coordinator.settings.transcriptHistory) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(spacing: 8) {
+                                        Label(timestampText(for: item.createdAt), systemImage: "clock")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button(copiedTranscriptID == item.id ? "Copied" : "Copy") {
+                                            coordinator.copyTranscriptToClipboard(item.text)
+                                            copiedTranscriptID = item.id
+                                            Task { @MainActor in
+                                                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                                                if copiedTranscriptID == item.id {
+                                                    copiedTranscriptID = nil
+                                                }
+                                            }
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.small)
+                                    }
+
+                                    Text(item.text)
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                        .lineLimit(4)
+                                        .truncationMode(.tail)
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color.primary.opacity(0.04))
+                                )
+                            }
+                        }
+                    }
+                    .frame(minHeight: 220, maxHeight: 320)
+                }
+            }
+        }
+    }
+
+    private func timestampText(for date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .shortened)
     }
 }
 

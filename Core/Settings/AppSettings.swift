@@ -1,5 +1,11 @@
 import Foundation
 
+struct TranscriptHistoryItem: Codable, Equatable, Identifiable {
+    let id: UUID
+    let text: String
+    let createdAt: Date
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     @Published var selectedModelID: String {
@@ -40,6 +46,14 @@ final class AppSettings: ObservableObject {
         didSet { userDefaults.set(warnOnBluetoothInput, forKey: Keys.warnOnBluetoothInput) }
     }
 
+    @Published var transcriptHistory: [TranscriptHistoryItem] {
+        didSet {
+            if let encoded = try? JSONEncoder().encode(transcriptHistory) {
+                userDefaults.set(encoded, forKey: Keys.transcriptHistory)
+            }
+        }
+    }
+
     private let userDefaults: UserDefaults
 
     init(userDefaults: UserDefaults = .standard) {
@@ -65,6 +79,34 @@ final class AppSettings: ObservableObject {
         } else {
             hotkey = .default
         }
+
+        if
+            let historyData = userDefaults.data(forKey: Keys.transcriptHistory),
+            let decodedHistory = try? JSONDecoder().decode([TranscriptHistoryItem].self, from: historyData)
+        {
+            transcriptHistory = decodedHistory
+        } else {
+            transcriptHistory = []
+        }
+    }
+
+    func addTranscriptToHistory(_ text: String, maxItems: Int) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let item = TranscriptHistoryItem(
+            id: UUID(),
+            text: trimmed,
+            createdAt: Date()
+        )
+        transcriptHistory.insert(item, at: 0)
+        if transcriptHistory.count > maxItems {
+            transcriptHistory = Array(transcriptHistory.prefix(maxItems))
+        }
+    }
+
+    func clearTranscriptHistory() {
+        transcriptHistory.removeAll()
     }
 
     private enum Keys {
@@ -75,5 +117,6 @@ final class AppSettings: ObservableObject {
         static let whisperCLIPath = "settings.whisperCLIPath"
         static let preferredInputDeviceID = "settings.preferredInputDeviceID"
         static let warnOnBluetoothInput = "settings.warnOnBluetoothInput"
+        static let transcriptHistory = "settings.transcriptHistory"
     }
 }

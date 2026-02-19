@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarRoot: View {
     @ObservedObject var coordinator: AppCoordinator
     @Environment(\.openSettings) private var openSettings
+    private let maxTranscriptPreviewCharacters = 90
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -25,9 +26,10 @@ struct MenuBarRoot: View {
                 Text("Last transcript")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(coordinator.lastTranscript)
+                Text(transcriptPreview)
                     .font(.caption)
-                    .lineLimit(3)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
             }
 
             Divider()
@@ -67,5 +69,14 @@ struct MenuBarRoot: View {
         case .error:
             return .yellow
         }
+    }
+
+    private var transcriptPreview: String {
+        let trimmed = coordinator.lastTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > maxTranscriptPreviewCharacters else {
+            return trimmed
+        }
+        let endIndex = trimmed.index(trimmed.startIndex, offsetBy: maxTranscriptPreviewCharacters)
+        return "\(trimmed[..<endIndex])..."
     }
 }

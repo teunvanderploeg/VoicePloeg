@@ -4,6 +4,7 @@ enum ReleaseConfig {
     static let defaultModelID = "ggml-base.en-q5_1"
     static let defaultLanguage = "auto"
     static let maxRecordingDurationSeconds: TimeInterval = 120
+    static let maxTranscriptHistoryItems = 40
 }
 
 enum UserFacingMessage {
