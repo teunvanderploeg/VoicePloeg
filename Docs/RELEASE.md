@@ -12,10 +12,10 @@ Run from project root:
 /Users/teun/Code/VoicePloeg/Scripts/release_preflight.sh
 ```
 
-Optional strict checksum gate:
+Default preflight behavior enforces model checksum verification. To temporarily relax this for local development:
 
 ```bash
-STRICT_MODEL_CHECKSUMS=1 /Users/teun/Code/VoicePloeg/Scripts/release_preflight.sh
+STRICT_MODEL_CHECKSUMS=0 /Users/teun/Code/VoicePloeg/Scripts/release_preflight.sh
 ```
 
 If your local Xcode installation is still setting up, you can skip the xcodebuild step temporarily:

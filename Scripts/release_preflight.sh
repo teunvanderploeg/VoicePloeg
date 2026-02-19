@@ -9,7 +9,7 @@ WHISPER_CLI="$ROOT_DIR/Vendor/whisper.cpp/build/bin/whisper-cli"
 WHISPER_REPO="$ROOT_DIR/Vendor/whisper.cpp"
 WHISPER_VERSION_FILE="$ROOT_DIR/Scripts/whisper.version"
 
-STRICT_MODEL_CHECKSUMS="${STRICT_MODEL_CHECKSUMS:-0}"
+STRICT_MODEL_CHECKSUMS="${STRICT_MODEL_CHECKSUMS:-1}"
 SKIP_XCODEBUILD="${SKIP_XCODEBUILD:-0}"
 
 info() { printf "\033[1;34m[info]\033[0m %s\n" "$1"; }
@@ -107,7 +107,7 @@ if pattern_exists '"sha256"[[:space:]]*:[[:space:]]*"UNVERIFIED"' "$MODEL_CATALO
   if [[ "$STRICT_MODEL_CHECKSUMS" == "1" ]]; then
     fail "Model catalog contains UNVERIFIED sha256 entries (STRICT_MODEL_CHECKSUMS=1)"
   else
-    warn "Model catalog still contains UNVERIFIED sha256 entries"
+    warn "Model catalog still contains UNVERIFIED sha256 entries (STRICT_MODEL_CHECKSUMS=$STRICT_MODEL_CHECKSUMS)"
   fi
 fi
 
