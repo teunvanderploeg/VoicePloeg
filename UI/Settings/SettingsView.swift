@@ -1,11 +1,129 @@
 import SwiftUI
 
+private enum SettingsPage: String, CaseIterable, Identifiable {
+    case overview
+    case recording
+    case transcription
+    case history
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .overview:
+            return "Overview"
+        case .recording:
+            return "Recording"
+        case .transcription:
+            return "Transcription"
+        case .history:
+            return "History"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .overview:
+            return "Permissions and runtime"
+        case .recording:
+            return "Input and hotkey"
+        case .transcription:
+            return "Model, language, runtime"
+        case .history:
+            return "Recent dictations"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .overview:
+            return "square.grid.2x2"
+        case .recording:
+            return "mic"
+        case .transcription:
+            return "waveform.and.magnifyingglass"
+        case .history:
+            return "clock.arrow.circlepath"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var coordinator: AppCoordinator
     @State private var showDiagnostics = false
     @State private var copiedTranscriptID: UUID?
+    @State private var selectedPage: SettingsPage? = .overview
 
     var body: some View {
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            detailView
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onAppear {
+            coordinator.refreshInputDevices()
+            coordinator.refreshPermissions()
+        }
+    }
+
+    private var sidebar: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            List(SettingsPage.allCases, selection: $selectedPage) { page in
+                HStack(spacing: 10) {
+                    Image(systemName: page.systemImage)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(selectedPage == page ? .white : .primary)
+                        .frame(width: 20)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(page.title)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        Text(page.subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(selectedPage == page ? .white.opacity(0.85) : .secondary)
+                    }
+                }
+                .padding(.vertical, 6)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selectedPage == page ? Color.accentColor : Color.clear)
+                        .padding(.vertical, 2)
+                )
+                .foregroundStyle(selectedPage == page ? .white : .primary)
+                .tag(page)
+            }
+            .scrollContentBackground(.hidden)
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("VoicePloeg")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                    Text("Settings")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+                .background(.ultraThinMaterial)
+            }
+        }
+        .frame(minWidth: 250)
+    }
+
+    private var detailView: some View {
         ZStack {
             LinearGradient(
                 colors: [
@@ -18,44 +136,39 @@ struct SettingsView: View {
             .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    headerView
+                VStack(alignment: .leading, spacing: 16) {
+                    pageHero
 
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.adaptive(minimum: 340), spacing: 16)
-                        ],
-                        spacing: 16
-                    ) {
-                        permissionsCard
-                        inputCard
-                        speechModelCard
-                        languageCard
-                        hotkeyCard
-                        whisperCard
-                        historyCard
+                    switch selectedPage ?? .overview {
+                    case .overview:
+                        overviewPage
+                    case .recording:
+                        recordingPage
+                    case .transcription:
+                        transcriptionPage
+                    case .history:
+                        historyPage
                     }
                 }
                 .padding(20)
             }
         }
-        .onAppear {
-            coordinator.refreshInputDevices()
-            coordinator.refreshPermissions()
-        }
     }
 
-    private var headerView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Image(systemName: "waveform.and.mic")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.primary)
+    private var pageHero: some View {
+        let page = selectedPage ?? .overview
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("VoicePloeg Settings")
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Image(systemName: page.systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(page.title)
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("Offline dictation controls and runtime status")
+                    Text(page.subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -74,13 +187,79 @@ struct SettingsView: View {
                 }
             }
 
-            LabeledContent("State", value: coordinator.state.title)
-                .font(.callout)
-            LabeledContent("Active Model", value: coordinator.settings.activeModelPath ?? "Not downloaded")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 14) {
+                LabeledContent("State", value: coordinator.state.title)
+                Divider()
+                    .frame(height: 16)
+                LabeledContent("History", value: "\(coordinator.settings.transcriptHistory.count)")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var overviewPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            permissionsCard
+            quickRuntimeCard
+        }
+    }
+
+    private var recordingPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            inputCard
+            hotkeyCard
+        }
+    }
+
+    private var transcriptionPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            speechModelCard
+            languageCard
+            whisperCard
+        }
+    }
+
+    private var historyPage: some View {
+        historyCard
+    }
+
+    private var quickRuntimeCard: some View {
+        SettingsCard(title: "Runtime", systemImage: "gauge.with.dots.needle.bottom.50percent") {
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledContent("Active Model", value: coordinator.settings.activeModelPath ?? "Not downloaded")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if !coordinator.lastTranscript.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Latest Transcript")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(coordinator.lastTranscript)
+                            .font(.callout)
+                            .lineLimit(3)
+                            .truncationMode(.tail)
+                            .textSelection(.enabled)
+                    }
+                } else {
+                    Text("No transcription yet in this session.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -189,7 +368,7 @@ struct SettingsView: View {
                 ModelPickerView(coordinator: coordinator)
 
                 if coordinator.isDownloadingModel {
-                    ProgressView("Downloading model…")
+                    ProgressView("Downloading model...")
                 }
             }
         }
@@ -258,7 +437,7 @@ struct SettingsView: View {
                         description: Text("Your latest transcriptions will show up here.")
                     )
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 12)
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 10) {
@@ -286,7 +465,7 @@ struct SettingsView: View {
                                     Text(item.text)
                                         .font(.callout)
                                         .textSelection(.enabled)
-                                        .lineLimit(4)
+                                        .lineLimit(5)
                                         .truncationMode(.tail)
                                 }
                                 .padding(12)
@@ -298,7 +477,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    .frame(minHeight: 220, maxHeight: 320)
+                    .frame(minHeight: 240, maxHeight: 420)
                 }
             }
         }
@@ -326,7 +505,7 @@ private struct SettingsCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.75))
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.74))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)

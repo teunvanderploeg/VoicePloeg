@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MenuBarRoot: View {
     @ObservedObject var coordinator: AppCoordinator
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     private let maxTranscriptPreviewCharacters = 90
 
     var body: some View {
@@ -35,7 +35,7 @@ struct MenuBarRoot: View {
             Divider()
 
             Button("Settings") {
-                openSettings()
+                openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
             }
 
