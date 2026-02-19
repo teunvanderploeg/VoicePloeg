@@ -3,6 +3,7 @@ import Foundation
 enum WhisperTranscriberError: Error, LocalizedError {
     case modelNotLoaded
     case whisperCLINotFound(String)
+    case processTimedOut(TimeInterval)
     case processFailed(String)
 
     var errorDescription: String? {
@@ -11,6 +12,8 @@ enum WhisperTranscriberError: Error, LocalizedError {
             return "No model loaded"
         case let .whisperCLINotFound(path):
             return "whisper-cli not found (configured: \(path)). Build whisper.cpp and verify Settings -> Path to whisper-cli."
+        case let .processTimedOut(seconds):
+            return "whisper.cpp exceeded timeout (\(Int(seconds))s)"
         case let .processFailed(message):
             return "whisper.cpp failed: \(message)"
         }
@@ -20,9 +23,15 @@ enum WhisperTranscriberError: Error, LocalizedError {
 final class WhisperCppTranscriber: SpeechTranscriber {
     private var modelURL: URL?
     private let cliPathProvider: () -> String
+    private let timeoutSeconds: TimeInterval
+    private let worker = WhisperWorker()
 
-    init(cliPathProvider: @escaping () -> String) {
+    init(
+        cliPathProvider: @escaping () -> String,
+        timeoutSeconds: TimeInterval = 180
+    ) {
         self.cliPathProvider = cliPathProvider
+        self.timeoutSeconds = timeoutSeconds
     }
 
     func loadModel(at url: URL) async throws {
@@ -46,6 +55,25 @@ final class WhisperCppTranscriber: SpeechTranscriber {
             throw WhisperTranscriberError.whisperCLINotFound(configuredPath)
         }
 
+        let activeModelPath = modelURL.path
+        return try await worker.transcribe(
+            samples: samples,
+            language: language,
+            cliPath: cliPath,
+            modelPath: activeModelPath,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+}
+
+private actor WhisperWorker {
+    func transcribe(
+        samples: [Float],
+        language: String?,
+        cliPath: String,
+        modelPath: String,
+        timeoutSeconds: TimeInterval
+    ) async throws -> TranscriptResult {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoicePloeg-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -61,7 +89,7 @@ final class WhisperCppTranscriber: SpeechTranscriber {
         process.executableURL = URL(fileURLWithPath: cliPath)
 
         var arguments = [
-            "-m", modelURL.path,
+            "-m", modelPath,
             "-f", wavURL.path,
             "-otxt",
             "-of", outputPrefix.path,
@@ -81,7 +109,7 @@ final class WhisperCppTranscriber: SpeechTranscriber {
 
         let startedAt = Date()
         try process.run()
-        process.waitUntilExit()
+        try await awaitProcessExit(process, timeoutSeconds: timeoutSeconds)
 
         let stderrData = stdErr.fileHandleForReading.readDataToEndOfFile()
         let stderrString = String(data: stderrData, encoding: .utf8) ?? "unknown error"
@@ -110,5 +138,25 @@ final class WhisperCppTranscriber: SpeechTranscriber {
             duration: duration,
             processingTime: processing
         )
+    }
+
+    private func awaitProcessExit(
+        _ process: Process,
+        timeoutSeconds: TimeInterval
+    ) async throws {
+        let timeoutNanoseconds = UInt64(timeoutSeconds * 1_000_000_000)
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+
+        while process.isRunning {
+            try Task.checkCancellation()
+
+            let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds - startedAt
+            if elapsedNanoseconds >= timeoutNanoseconds {
+                process.terminate()
+                throw WhisperTranscriberError.processTimedOut(timeoutSeconds)
+            }
+
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 }

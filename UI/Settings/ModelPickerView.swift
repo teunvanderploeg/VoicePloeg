@@ -6,7 +6,8 @@ struct ModelPickerView: View {
     var body: some View {
         Picker("Model", selection: $coordinator.settings.selectedModelID) {
             ForEach(coordinator.modelManager.catalog) { model in
-                Text("\(model.displayName) (\(model.quantization))").tag(model.id)
+                Text(modelRowTitle(for: model))
+                    .tag(model.id)
             }
         }
 
@@ -25,5 +26,11 @@ struct ModelPickerView: View {
                     .font(.caption)
             }
         }
+    }
+
+    private func modelRowTitle(for model: ModelCatalogItem) -> String {
+        let isDownloaded = coordinator.modelManager.isDownloaded(model)
+        let statusPrefix = isDownloaded ? "✓" : "○"
+        return "\(statusPrefix) \(model.displayName) • \(model.formattedSize) • \(model.quantization)"
     }
 }

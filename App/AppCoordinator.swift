@@ -74,6 +74,12 @@ final class AppCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
         register(settings.hotkey)
         refreshInputDevices()
     }
@@ -183,6 +189,15 @@ final class AppCoordinator: ObservableObject {
         do {
             refreshInputDevices()
             try applyPreferredInputDeviceIfNeeded()
+            if
+                settings.warnOnBluetoothInput,
+                let effectiveInput = effectiveRecordingInputDevice(),
+                effectiveInput.isBluetooth
+            {
+                restorePreviousInputDeviceIfNeeded()
+                state = .error(message: UserFacingMessage.bluetoothInputBlocked(effectiveInput.name))
+                return
+            }
             try await recordingController.start()
             recordingFeedbackPlayer.playStartCue()
             state = .listening(startedAt: Date())

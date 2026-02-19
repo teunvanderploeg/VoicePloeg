@@ -20,6 +20,7 @@ let package = Package(
                 "README.md",
                 ".gitignore",
                 "Docs",
+                "Tests",
                 "VoicePloeg.xcodeproj",
                 "project.yml",
                 "App/Info.plist",
@@ -42,6 +43,11 @@ let package = Package(
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("Carbon")
             ]
+        ),
+        .testTarget(
+            name: "VoicePloegTests",
+            dependencies: ["VoicePloeg"],
+            path: "Tests/VoicePloegTests"
         )
     ]
 )
