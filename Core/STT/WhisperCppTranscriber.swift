@@ -21,15 +21,14 @@ enum WhisperTranscriberError: Error, LocalizedError {
 }
 
 final class WhisperCppTranscriber: SpeechTranscriber {
-    private static let defaultTimeoutSeconds: TimeInterval = 180
-
     private var modelURL: URL?
     private let cliPathProvider: () -> String
     private let timeoutSeconds: TimeInterval
+    private let worker = WhisperWorker()
 
     init(
         cliPathProvider: @escaping () -> String,
-        timeoutSeconds: TimeInterval = defaultTimeoutSeconds
+        timeoutSeconds: TimeInterval = 180
     ) {
         self.cliPathProvider = cliPathProvider
         self.timeoutSeconds = timeoutSeconds
@@ -57,77 +56,91 @@ final class WhisperCppTranscriber: SpeechTranscriber {
         }
 
         let activeModelPath = modelURL.path
-        let timeoutSeconds = timeoutSeconds
+        return try await worker.transcribe(
+            samples: samples,
+            language: language,
+            cliPath: cliPath,
+            modelPath: activeModelPath,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+}
 
-        return try await Task.detached(priority: .userInitiated) {
-            let tempDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("VoicePloeg-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: tempDirectory) }
+private actor WhisperWorker {
+    func transcribe(
+        samples: [Float],
+        language: String?,
+        cliPath: String,
+        modelPath: String,
+        timeoutSeconds: TimeInterval
+    ) async throws -> TranscriptResult {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoicePloeg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
-            let wavURL = tempDirectory.appendingPathComponent("input.wav")
-            let outputPrefix = tempDirectory.appendingPathComponent("result")
-            let outputTxtURL = outputPrefix.appendingPathExtension("txt")
+        let wavURL = tempDirectory.appendingPathComponent("input.wav")
+        let outputPrefix = tempDirectory.appendingPathComponent("result")
+        let outputTxtURL = outputPrefix.appendingPathExtension("txt")
 
-            try WavWriter.write(samples: samples, to: wavURL)
+        try WavWriter.write(samples: samples, to: wavURL)
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: cliPath)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: cliPath)
 
-            var arguments = [
-                "-m", activeModelPath,
-                "-f", wavURL.path,
-                "-otxt",
-                "-of", outputPrefix.path,
-                "-nt"
-            ]
+        var arguments = [
+            "-m", modelPath,
+            "-f", wavURL.path,
+            "-otxt",
+            "-of", outputPrefix.path,
+            "-nt"
+        ]
 
-            if let language, language.lowercased() != "auto" {
-                arguments.append(contentsOf: ["-l", language])
-            }
+        if let language, language.lowercased() != "auto" {
+            arguments.append(contentsOf: ["-l", language])
+        }
 
-            process.arguments = arguments
+        process.arguments = arguments
 
-            let stdOut = Pipe()
-            let stdErr = Pipe()
-            process.standardOutput = stdOut
-            process.standardError = stdErr
+        let stdOut = Pipe()
+        let stdErr = Pipe()
+        process.standardOutput = stdOut
+        process.standardError = stdErr
 
-            let startedAt = Date()
-            try process.run()
-            try await Self.awaitProcessExit(process, timeoutSeconds: timeoutSeconds)
+        let startedAt = Date()
+        try process.run()
+        try await awaitProcessExit(process, timeoutSeconds: timeoutSeconds)
 
-            let stderrData = stdErr.fileHandleForReading.readDataToEndOfFile()
-            let stderrString = String(data: stderrData, encoding: .utf8) ?? "unknown error"
+        let stderrData = stdErr.fileHandleForReading.readDataToEndOfFile()
+        let stderrString = String(data: stderrData, encoding: .utf8) ?? "unknown error"
 
-            guard process.terminationStatus == 0 else {
-                throw WhisperTranscriberError.processFailed(stderrString)
-            }
+        guard process.terminationStatus == 0 else {
+            throw WhisperTranscriberError.processFailed(stderrString)
+        }
 
-            let outputText: String
-            if FileManager.default.fileExists(atPath: outputTxtURL.path) {
-                outputText = (try String(contentsOf: outputTxtURL)).trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                let stdoutData = stdOut.fileHandleForReading.readDataToEndOfFile()
-                outputText = (String(data: stdoutData, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+        let outputText: String
+        if FileManager.default.fileExists(atPath: outputTxtURL.path) {
+            outputText = (try String(contentsOf: outputTxtURL)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            let stdoutData = stdOut.fileHandleForReading.readDataToEndOfFile()
+            outputText = (String(data: stdoutData, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
-            let duration = Double(samples.count) / 16_000
-            let processing = Date().timeIntervalSince(startedAt)
-            let segments = outputText.isEmpty
-                ? []
-                : [TranscriptSegment(start: 0, end: duration, text: outputText)]
+        let duration = Double(samples.count) / 16_000
+        let processing = Date().timeIntervalSince(startedAt)
+        let segments = outputText.isEmpty
+            ? []
+            : [TranscriptSegment(start: 0, end: duration, text: outputText)]
 
-            return TranscriptResult(
-                text: outputText,
-                segments: segments,
-                duration: duration,
-                processingTime: processing
-            )
-        }.value
+        return TranscriptResult(
+            text: outputText,
+            segments: segments,
+            duration: duration,
+            processingTime: processing
+        )
     }
 
-    private static func awaitProcessExit(
+    private func awaitProcessExit(
         _ process: Process,
         timeoutSeconds: TimeInterval
     ) async throws {
