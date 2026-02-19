@@ -31,6 +31,11 @@ enum TextOutputError: Error, LocalizedError {
 }
 
 final class ActiveAppTextOutputController: TextOutputController {
+    private struct PasteboardSnapshot {
+        let items: [[NSPasteboard.PasteboardType: Data]]
+        let changeCount: Int
+    }
+
     func insert(_ text: String) async throws -> TextInsertionMethod {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -62,7 +67,10 @@ final class ActiveAppTextOutputController: TextOutputController {
             return false
         }
 
-        let focusedElement = focusedObject as! AXUIElement
+        guard CFGetTypeID(focusedObject) == AXUIElementGetTypeID() else {
+            return false
+        }
+        let focusedElement = unsafeBitCast(focusedObject, to: AXUIElement.self)
 
         let selectedStatus = AXUIElementSetAttributeValue(
             focusedElement,
@@ -78,7 +86,7 @@ final class ActiveAppTextOutputController: TextOutputController {
 
     private func insertUsingClipboardPaste(_ text: String) throws {
         let pasteboard = NSPasteboard.general
-        let previousString = pasteboard.string(forType: .string)
+        let snapshot = snapshotPasteboard(pasteboard)
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -94,11 +102,39 @@ final class ActiveAppTextOutputController: TextOutputController {
         keyDown?.post(tap: .cgAnnotatedSessionEventTap)
         keyUp?.post(tap: .cgAnnotatedSessionEventTap)
 
-        if let previousString {
+        if !snapshot.items.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                pasteboard.clearContents()
-                pasteboard.setString(previousString, forType: .string)
+                // Only restore if no one changed clipboard after our paste operation.
+                guard pasteboard.changeCount == snapshot.changeCount + 1 else { return }
+                self.restorePasteboard(pasteboard, from: snapshot)
             }
         }
+    }
+
+    private func snapshotPasteboard(_ pasteboard: NSPasteboard) -> PasteboardSnapshot {
+        let items = pasteboard.pasteboardItems?.map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { partialResult, type in
+                if let data = item.data(forType: type) {
+                    partialResult[type] = data
+                }
+            }
+        } ?? []
+
+        return PasteboardSnapshot(items: items, changeCount: pasteboard.changeCount)
+    }
+
+    private func restorePasteboard(_ pasteboard: NSPasteboard, from snapshot: PasteboardSnapshot) {
+        let items = snapshot.items.compactMap { rawItem -> NSPasteboardItem? in
+            guard !rawItem.isEmpty else { return nil }
+            let pasteboardItem = NSPasteboardItem()
+            for (type, data) in rawItem {
+                pasteboardItem.setData(data, forType: type)
+            }
+            return pasteboardItem
+        }
+
+        pasteboard.clearContents()
+        guard !items.isEmpty else { return }
+        pasteboard.writeObjects(items)
     }
 }
