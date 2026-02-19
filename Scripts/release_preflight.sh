@@ -6,6 +6,8 @@ PROJECT_PATH="$ROOT_DIR/VoicePloeg.xcodeproj"
 SCHEME="VoicePloeg"
 MODEL_CATALOG="$ROOT_DIR/Resources/ModelCatalog.json"
 WHISPER_CLI="$ROOT_DIR/Vendor/whisper.cpp/build/bin/whisper-cli"
+WHISPER_REPO="$ROOT_DIR/Vendor/whisper.cpp"
+WHISPER_VERSION_FILE="$ROOT_DIR/Scripts/whisper.version"
 
 STRICT_MODEL_CHECKSUMS="${STRICT_MODEL_CHECKSUMS:-0}"
 SKIP_XCODEBUILD="${SKIP_XCODEBUILD:-0}"
@@ -81,6 +83,24 @@ info "Step 5/5: Release gating checks"
 if [[ ! -x "$WHISPER_CLI" ]]; then
   warn "whisper-cli not found or not executable at: $WHISPER_CLI"
   warn "Build it with: $ROOT_DIR/Scripts/bootstrap_whisper.sh"
+fi
+
+if [[ ! -f "$WHISPER_VERSION_FILE" ]]; then
+  fail "Missing pinned whisper.cpp version file: $WHISPER_VERSION_FILE"
+fi
+
+PINNED_WHISPER_REF="$(tr -d '[:space:]' < "$WHISPER_VERSION_FILE")"
+if [[ -z "$PINNED_WHISPER_REF" ]]; then
+  fail "Pinned whisper.cpp version file is empty: $WHISPER_VERSION_FILE"
+fi
+
+if [[ ! -d "$WHISPER_REPO/.git" ]]; then
+  fail "Vendored whisper.cpp repository missing at: $WHISPER_REPO"
+fi
+
+CURRENT_WHISPER_REF="$(git -C "$WHISPER_REPO" rev-parse HEAD)"
+if [[ "$CURRENT_WHISPER_REF" != "$PINNED_WHISPER_REF" ]]; then
+  fail "whisper.cpp revision mismatch. expected=$PINNED_WHISPER_REF current=$CURRENT_WHISPER_REF"
 fi
 
 if pattern_exists '"sha256"[[:space:]]*:[[:space:]]*"UNVERIFIED"' "$MODEL_CATALOG"; then
