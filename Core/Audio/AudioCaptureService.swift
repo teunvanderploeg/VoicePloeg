@@ -22,7 +22,6 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
         }
     }
 
-    private let engine = AVAudioEngine()
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
         sampleRate: 16_000,
@@ -38,6 +37,7 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
     private var converterInputChannelCount: AVAudioChannelCount = 0
     private var capturedSamples: [Float] = []
     private var isRecording = false
+    private var engine: AVAudioEngine?
 
     init(maxDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds) {
         maxSamples = Int(16_000 * maxDurationSeconds)
@@ -54,25 +54,19 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
             converterInputChannelCount = 0
         }
 
-        let inputNode = engine.inputNode
-
-        inputNode.removeTap(onBus: 0)
-        // Use hardware-native format to avoid CoreAudio tap format mismatch when input device changes.
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            self?.process(buffer: buffer)
-        }
-
-        engine.reset()
-        engine.prepare()
-        try engine.start()
+        try await startEngineWithRetry()
         isRecording = true
     }
 
     func stop() async throws -> [Float] {
         guard isRecording else { return [] }
 
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        if let engine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            engine.reset()
+        }
+        engine = nil
         isRecording = false
         lock.withLock {
             converter = nil
@@ -85,6 +79,62 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
         }
 
         return normalizeAndTrim(output)
+    }
+
+    private func startEngineWithRetry() async throws {
+        let maxAttempts = 2
+        var lastError: Error?
+
+        for attempt in 1 ... maxAttempts {
+            do {
+                try startFreshEngine()
+                return
+            } catch {
+                lastError = error
+                teardownEngine()
+
+                guard attempt < maxAttempts, isCoreAudioRouteNegotiationError(error) else {
+                    throw error
+                }
+
+                // Bluetooth/HFP route switches can briefly expose unsupported formats.
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
+
+        if let lastError {
+            throw lastError
+        }
+    }
+
+    private func startFreshEngine() throws {
+        let freshEngine = AVAudioEngine()
+        let inputNode = freshEngine.inputNode
+
+        inputNode.removeTap(onBus: 0)
+        // Use hardware-native format to avoid CoreAudio tap format mismatch when input device changes.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            self?.process(buffer: buffer)
+        }
+
+        freshEngine.reset()
+        freshEngine.prepare()
+        try freshEngine.start()
+        engine = freshEngine
+    }
+
+    private func teardownEngine() {
+        if let engine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+            engine.reset()
+        }
+        engine = nil
+    }
+
+    private func isCoreAudioRouteNegotiationError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "com.apple.coreaudio.avfaudio" && nsError.code == -10868
     }
 
     private func process(buffer: AVAudioPCMBuffer) {

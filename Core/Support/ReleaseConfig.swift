@@ -11,6 +11,7 @@ enum UserFacingMessage {
     static let selectedModelNotFound = "Selected model not found in catalog"
     static let microphonePermissionDenied = "Microphone permission denied"
     static let preferredInputUnavailable = "Preferred recording input is not available. Connect it or choose another input device."
+    static let audioRouteNotReady = "Audio route is still switching (often Bluetooth/HFP). Please try again in a second."
 
     static func bluetoothInputBlocked(_ inputName: String) -> String {
         "Recording blocked because the selected input (\(inputName)) is Bluetooth/HFP. Disable the Bluetooth warning or choose a non-Bluetooth input."

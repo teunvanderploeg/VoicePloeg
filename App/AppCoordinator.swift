@@ -202,6 +202,7 @@ final class AppCoordinator: ObservableObject {
         do {
             refreshInputDevices()
             try applyPreferredInputDeviceIfNeeded()
+            await settleAfterInputDeviceSwitchIfNeeded()
             if
                 settings.warnOnBluetoothInput,
                 let effectiveInput = effectiveRecordingInputDevice(),
@@ -216,7 +217,7 @@ final class AppCoordinator: ObservableObject {
             state = .listening(startedAt: Date())
         } catch {
             restorePreviousInputDeviceIfNeeded()
-            state = .error(message: error.localizedDescription)
+            state = .error(message: userFacingRecordingError(error))
         }
     }
 
@@ -287,6 +288,24 @@ final class AppCoordinator: ObservableObject {
             previousDefaultInputDeviceID = currentID
             try audioInputDeviceManager.setDefaultInputDeviceID(preferredID)
         }
+    }
+
+    private func settleAfterInputDeviceSwitchIfNeeded() async {
+        guard previousDefaultInputDeviceID != nil else { return }
+
+        // Route changes (especially Bluetooth/HFP) are asynchronous in CoreAudio.
+        let switchedToBluetooth = preferredInputDevice()?.isBluetooth == true
+        let delayNs: UInt64 = switchedToBluetooth ? 700_000_000 : 250_000_000
+        try? await Task.sleep(nanoseconds: delayNs)
+        refreshInputDevices()
+    }
+
+    private func userFacingRecordingError(_ error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == "com.apple.coreaudio.avfaudio", nsError.code == -10868 {
+            return UserFacingMessage.audioRouteNotReady
+        }
+        return error.localizedDescription
     }
 
     private func restorePreviousInputDeviceIfNeeded() {
