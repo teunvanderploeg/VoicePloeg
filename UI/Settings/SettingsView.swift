@@ -146,8 +146,12 @@ struct SettingsView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
 
-                Toggle("Warn on Bluetooth/HFP input", isOn: $coordinator.settings.warnOnBluetoothInput)
+                Toggle("Block recording on Bluetooth/HFP input", isOn: $coordinator.settings.warnOnBluetoothInput)
                     .toggleStyle(.checkbox)
+
+                Text("When enabled, recording is stopped before start if the effective input device is Bluetooth/HFP.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 HStack {
                     Text("Current System Input")

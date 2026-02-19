@@ -21,6 +21,10 @@ struct ModelCatalogItem: Codable, Equatable, Identifiable {
         }
         return normalized.lowercased()
     }
+
+    var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+    }
 }
 
 enum ModelManagerError: Error, LocalizedError {
