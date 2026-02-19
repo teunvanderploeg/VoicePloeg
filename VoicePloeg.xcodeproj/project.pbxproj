@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1266E490549AC9F35802D24F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0D5AB9A6418E20B389E44442 /* Assets.xcassets */; };
 		1714C2B0C43E31A8A75CE7E7 /* VoicePloegApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA18EF1D0257584840C8DAC /* VoicePloegApp.swift */; };
 		19DCF321FB05BB16E91D4D3B /* ModelPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C81595F096E568C71F853BE /* ModelPickerView.swift */; };
 		27F904A4C4DDD2CD9A5974AF /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBB2DBD3E6356969488ADD0 /* GlobalHotkeyService.swift */; };
@@ -34,6 +35,7 @@
 
 /* Begin PBXFileReference section */
 		053D71FA0E3DE44B582519B1 /* HotkeyRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyRecorderView.swift; sourceTree = "<group>"; };
+		0D5AB9A6418E20B389E44442 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0DF03C958913CA24981F9339 /* PermissionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionController.swift; sourceTree = "<group>"; };
 		191628BD5A5273B7DF6D4D42 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1C81595F096E568C71F853BE /* ModelPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPickerView.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 			isa = PBXGroup;
 			children = (
 				74B05282460DE472F3255325 /* AppCoordinator.swift */,
+				0D5AB9A6418E20B389E44442 /* Assets.xcassets */,
 				8D2E1CB52F5B78C29DBE4FA3 /* Info.plist */,
 				E3FABD855D34542534AD67FF /* MenuBarRoot.swift */,
 				6FE3EB51CD6A580E3DF6FD3C /* VoicePloeg.entitlements */,
@@ -282,6 +285,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1266E490549AC9F35802D24F /* Assets.xcassets in Resources */,
 				93124891A537354135C7244F /* ModelCatalog.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -457,7 +461,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.voiceploeg.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voiceploeg.app.debug;
 				PRODUCT_NAME = VoicePloeg;
 				SDKROOT = macosx;
 			};

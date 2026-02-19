@@ -27,5 +27,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/VoicePloeg.entitlements
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.voiceploeg.app.debug
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.voiceploeg.app
     scheme:
       testTargets: []

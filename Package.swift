@@ -19,12 +19,14 @@ let package = Package(
                 ".build",
                 "README.md",
                 ".gitignore",
+                "voiceploeg.png",
                 "Docs",
                 "Tests",
                 "VoicePloeg.xcodeproj",
                 "project.yml",
                 "App/Info.plist",
                 "App/VoicePloeg.entitlements",
+                "App/Assets.xcassets",
                 "Core/STT/WhisperBridge.mm"
             ],
             sources: [
