@@ -13,7 +13,6 @@ struct TranscriptResult: Codable, Equatable {
     let processingTime: TimeInterval
 }
 
-@MainActor
 protocol SpeechTranscriber {
     func loadModel(at url: URL) async throws
     func transcribe(samples: [Float], language: String?) async throws -> TranscriptResult
