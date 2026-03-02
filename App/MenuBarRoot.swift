@@ -32,6 +32,13 @@ struct MenuBarRoot: View {
                     .truncationMode(.tail)
             }
 
+            Button(action: {
+                coordinator.cycleLanguage()
+            }) {
+                Text("Language: \(languageLabel)")
+            }
+            .keyboardShortcut("l", modifiers: [.control, .option])
+
             Divider()
 
             Button("Settings") {
@@ -68,6 +75,14 @@ struct MenuBarRoot: View {
             return .orange
         case .error:
             return .yellow
+        }
+    }
+
+    private var languageLabel: String {
+        switch coordinator.settings.selectedLanguage {
+        case "en": return "English"
+        case "nl": return "Dutch"
+        default:   return "Auto"
         }
     }
 

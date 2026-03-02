@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @main
 struct VoicePloegApp: App {
@@ -12,7 +13,11 @@ struct VoicePloegApp: App {
         MenuBarExtra {
             MenuBarRoot(coordinator: coordinator)
         } label: {
-            Label("VoicePloeg", systemImage: coordinator.state.symbolName)
+            if let flag = coordinator.languageFeedbackFlag {
+                Image(nsImage: flagImage(flag))
+            } else {
+                Image(systemName: coordinator.state.symbolName)
+            }
         }
 
         Window("Settings", id: "settings") {
@@ -23,6 +28,23 @@ struct VoicePloegApp: App {
         .commands {
             SettingsCommands()
         }
+    }
+
+    /// Renders a flag emoji into an NSImage sized for the menu bar (18×18 pt).
+    private func flagImage(_ emoji: String) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 14)
+        ]
+        let str = NSAttributedString(string: emoji, attributes: attrs)
+        let strSize = str.size()
+        str.draw(at: NSPoint(x: (size.width - strSize.width) / 2,
+                             y: (size.height - strSize.height) / 2))
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 }
 
@@ -39,3 +61,4 @@ private struct SettingsCommands: Commands {
         }
     }
 }
+

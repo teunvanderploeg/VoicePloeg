@@ -11,6 +11,11 @@ struct HotkeyCombination: Codable, Equatable {
         carbonModifiers: UInt32(controlKey | optionKey)
     )
 
+    static let languageCycle = HotkeyCombination(
+        keyCode: UInt32(kVK_ANSI_L),
+        carbonModifiers: UInt32(controlKey | optionKey)
+    )
+
     var displayText: String {
         var parts: [String] = []
         if carbonModifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
@@ -38,6 +43,8 @@ struct HotkeyCombination: Codable, Equatable {
             return "Return"
         case kVK_Escape:
             return "Esc"
+        case kVK_ANSI_L:
+            return "L"
         default:
             if let scalar = UnicodeScalar(Int(keyCode) + 0x41), scalar.properties.isAlphabetic {
                 return String(scalar)
@@ -58,32 +65,80 @@ enum GlobalHotkeyError: Error, LocalizedError {
     }
 }
 
+/// Manages all global Carbon hotkeys for the app through a single shared event handler.
+///
+/// Carbon's `InstallEventHandler` installs a handler on an event target. When you
+/// install multiple handlers for the same event class/kind on the same target, each
+/// handler is called in a chain. This works, but it becomes fragile when handlers are
+/// removed and re-added independently. The safe pattern is one handler that dispatches
+/// by `EventHotKeyID.id`.
 final class GlobalHotkeyService {
-    private let signature = OSType(0x56504C47) // VPLG
-    private let id: UInt32 = 1
+    private let signature = OSType(0x56504C47) // 'VPLG'
+
+    // Slot IDs
+    private let recordingID: UInt32 = 1
+    private let languageID:  UInt32 = 2
 
     private var eventHandler: EventHandlerRef?
-    private var hotKeyRef: EventHotKeyRef?
+    private var recordingHotKeyRef: EventHotKeyRef?
+    private var languageHotKeyRef:  EventHotKeyRef?
 
+    /// Fired when the recording hotkey is pressed.
     var onTrigger: (() -> Void)?
+    /// Fired when the language-cycle hotkey (⌃⌥L) is pressed.
+    var onLanguageCycleTrigger: (() -> Void)?
 
-    deinit {
-        unregister()
+    init() {
+        installSharedHandler()
+        // Language cycle hotkey is fixed — register it once at startup.
+        registerLanguageHotkey()
     }
 
-    func register(_ combination: HotkeyCombination) throws {
-        unregister()
+    deinit {
+        unregisterRecordingHotkey()
+        unregisterLanguageHotkey()
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+        }
+    }
 
+    // MARK: - Public API
+
+    func register(_ combination: HotkeyCombination) throws {
+        unregisterRecordingHotkey()
+
+        let hotKeyID = EventHotKeyID(signature: signature, id: recordingID)
+        let status = RegisterEventHotKey(
+            combination.keyCode,
+            combination.carbonModifiers,
+            hotKeyID,
+            GetEventDispatcherTarget(),
+            0,
+            &recordingHotKeyRef
+        )
+        guard status == noErr else {
+            throw GlobalHotkeyError.registrationFailed(status)
+        }
+    }
+
+    func unregister() {
+        unregisterRecordingHotkey()
+    }
+
+    // MARK: - Private helpers
+
+    private func installSharedHandler() {
         var eventSpec = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: OSType(kEventHotKeyPressed)
         )
 
-        let installStatus = InstallEventHandler(
+        InstallEventHandler(
             GetEventDispatcherTarget(),
-            { _, eventRef, userData in
+            { _, eventRef, userData -> OSStatus in
                 guard let userData, let eventRef else { return noErr }
-                let `self` = Unmanaged<GlobalHotkeyService>.fromOpaque(userData).takeUnretainedValue()
+                let service = Unmanaged<GlobalHotkeyService>.fromOpaque(userData).takeUnretainedValue()
+
                 var hotKeyID = EventHotKeyID()
                 let status = GetEventParameter(
                     eventRef,
@@ -94,9 +149,12 @@ final class GlobalHotkeyService {
                     nil,
                     &hotKeyID
                 )
+                guard status == noErr, hotKeyID.signature == service.signature else { return noErr }
 
-                if status == noErr, hotKeyID.signature == self.signature, hotKeyID.id == self.id {
-                    self.onTrigger?()
+                switch hotKeyID.id {
+                case service.recordingID: service.onTrigger?()
+                case service.languageID:  service.onLanguageCycleTrigger?()
+                default: break
                 }
                 return noErr
             },
@@ -105,35 +163,31 @@ final class GlobalHotkeyService {
             UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
             &eventHandler
         )
+    }
 
-        guard installStatus == noErr else {
-            throw GlobalHotkeyError.registrationFailed(installStatus)
-        }
-
-        let hotKeyID = EventHotKeyID(signature: signature, id: id)
-        let registerStatus = RegisterEventHotKey(
-            UInt32(combination.keyCode),
-            UInt32(combination.carbonModifiers),
+    private func registerLanguageHotkey() {
+        let hotKeyID = EventHotKeyID(signature: signature, id: languageID)
+        RegisterEventHotKey(
+            HotkeyCombination.languageCycle.keyCode,
+            HotkeyCombination.languageCycle.carbonModifiers,
             hotKeyID,
             GetEventDispatcherTarget(),
             0,
-            &hotKeyRef
+            &languageHotKeyRef
         )
+    }
 
-        guard registerStatus == noErr else {
-            throw GlobalHotkeyError.registrationFailed(registerStatus)
+    private func unregisterRecordingHotkey() {
+        if let ref = recordingHotKeyRef {
+            UnregisterEventHotKey(ref)
+            recordingHotKeyRef = nil
         }
     }
 
-    func unregister() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
-        }
-
-        if let eventHandler {
-            RemoveEventHandler(eventHandler)
-            self.eventHandler = nil
+    private func unregisterLanguageHotkey() {
+        if let ref = languageHotKeyRef {
+            UnregisterEventHotKey(ref)
+            languageHotKeyRef = nil
         }
     }
 }

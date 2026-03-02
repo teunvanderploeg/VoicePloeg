@@ -21,6 +21,8 @@ final class AppCoordinator: ObservableObject {
     @Published var lastTranscript: String = ""
     @Published var isDownloadingModel = false
     @Published var availableInputDevices: [AudioInputDevice] = []
+    /// Non-nil for 2 seconds after a language switch; contains the flag emoji for the new language.
+    @Published var languageFeedbackFlag: String? = nil
 
     var settings: AppSettings
     var modelManager: ModelManager
@@ -36,6 +38,7 @@ final class AppCoordinator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var previousDefaultInputDeviceID: UInt32?
     private var outputTargetProcessID: pid_t?
+    private var languageFeedbackTask: Task<Void, Never>?
 
     init(
         settings: AppSettings,
@@ -67,6 +70,13 @@ final class AppCoordinator: ObservableObject {
             }
         }
 
+        hotkeyService.onLanguageCycleTrigger = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.cycleLanguage()
+            }
+        }
+
         settings.$hotkey
             .removeDuplicates()
             .sink { [weak self] hotkey in
@@ -95,6 +105,35 @@ final class AppCoordinator: ObservableObject {
             audioInputDeviceManager: AudioInputDeviceManager(),
             recordingFeedbackPlayer: SystemRecordingFeedbackPlayer()
         )
+    }
+
+    /// Cycles the transcription language through English → Dutch → English.
+    func cycleLanguage() {
+        let cycle = ["en", "nl"]
+        let current = settings.selectedLanguage
+        if let index = cycle.firstIndex(of: current) {
+            settings.selectedLanguage = cycle[(index + 1) % cycle.count]
+        } else {
+            settings.selectedLanguage = "en"
+        }
+        showLanguageFlagFeedback()
+    }
+
+    private func showLanguageFlagFeedback() {
+        let flag: String
+        switch settings.selectedLanguage {
+        case "en": flag = "🇬🇧"
+        case "nl": flag = "🇳🇱"
+        default:   flag = "🌐"
+        }
+
+        languageFeedbackTask?.cancel()
+        languageFeedbackFlag = flag
+        languageFeedbackTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            languageFeedbackFlag = nil
+        }
     }
 
     func toggleRecording() async {
