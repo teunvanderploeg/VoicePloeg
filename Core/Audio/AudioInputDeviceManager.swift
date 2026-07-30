@@ -33,9 +33,41 @@ protocol AudioInputDeviceManaging {
     func availableInputDevices() -> [AudioInputDevice]
     func defaultInputDeviceID() -> AudioDeviceID?
     func setDefaultInputDeviceID(_ id: AudioDeviceID) throws
+    func setInputDeviceChangeHandler(_ handler: @escaping @Sendable () -> Void)
 }
 
-final class AudioInputDeviceManager: AudioInputDeviceManaging {
+enum AudioInputRecovery {
+    static func fallbackDevice(
+        in devices: [AudioInputDevice],
+        currentDefaultID: AudioDeviceID?,
+        prefersBuiltIn: Bool = false
+    ) -> AudioInputDevice? {
+        if prefersBuiltIn, let builtIn = devices.first(where: \.isBuiltIn) {
+            return builtIn.id == currentDefaultID ? nil : builtIn
+        }
+
+        if let currentDefaultID, devices.contains(where: { $0.id == currentDefaultID }) {
+            return nil
+        }
+
+        return devices.first(where: \.isBuiltIn) ?? devices.first
+    }
+}
+
+final class AudioInputDeviceManager: AudioInputDeviceManaging, @unchecked Sendable {
+    private let handlerLock = NSLock()
+    private var inputDeviceChangeHandler: (@Sendable () -> Void)?
+    private var deviceListListener: AudioObjectPropertyListenerBlock?
+    private var defaultInputListener: AudioObjectPropertyListenerBlock?
+
+    init() {
+        installInputDeviceListeners()
+    }
+
+    deinit {
+        removeInputDeviceListeners()
+    }
+
     func availableInputDevices() -> [AudioInputDevice] {
         guard let deviceIDs = try? allDeviceIDs() else {
             return []
@@ -110,6 +142,87 @@ final class AudioInputDeviceManager: AudioInputDeviceManaging {
         guard status == noErr else {
             throw AudioInputDeviceError.coreAudioError(status, "setting default input device")
         }
+    }
+
+    func setInputDeviceChangeHandler(_ handler: @escaping @Sendable () -> Void) {
+        handlerLock.withLock {
+            inputDeviceChangeHandler = handler
+        }
+    }
+
+    private func installInputDeviceListeners() {
+        var devicesAddress = Self.devicesPropertyAddress
+        let deviceListListener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.notifyInputDevicesChanged()
+        }
+        let devicesStatus = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &devicesAddress,
+            DispatchQueue.main,
+            deviceListListener
+        )
+        if devicesStatus == noErr {
+            self.deviceListListener = deviceListListener
+        }
+
+        var defaultInputAddress = Self.defaultInputPropertyAddress
+        let defaultInputListener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.notifyInputDevicesChanged()
+        }
+        let defaultStatus = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &defaultInputAddress,
+            DispatchQueue.main,
+            defaultInputListener
+        )
+        if defaultStatus == noErr {
+            self.defaultInputListener = defaultInputListener
+        }
+    }
+
+    private func removeInputDeviceListeners() {
+        if let deviceListListener {
+            var address = Self.devicesPropertyAddress
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                DispatchQueue.main,
+                deviceListListener
+            )
+        }
+
+        if let defaultInputListener {
+            var address = Self.defaultInputPropertyAddress
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                DispatchQueue.main,
+                defaultInputListener
+            )
+        }
+    }
+
+    private func notifyInputDevicesChanged() {
+        let handler = handlerLock.withLock {
+            inputDeviceChangeHandler
+        }
+        handler?()
+    }
+
+    private static var devicesPropertyAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+    }
+
+    private static var defaultInputPropertyAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
     }
 
     private func allDeviceIDs() throws -> [AudioDeviceID] {

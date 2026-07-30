@@ -136,7 +136,7 @@
   },
   {
     "id": "ggml-large-v3-q5_0",
-    "displayName": "Whisper large-v3 multilingual (highest accuracy, quantized)",
+    "displayName": "Whisper large-v3 multilingual (accuracy first, slower)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
     "sha256": "UNVERIFIED",
     "sizeBytes": 1081140203,
@@ -145,7 +145,7 @@
   },
   {
     "id": "ggml-large-v3-turbo-q5_0",
-    "displayName": "Whisper large-v3 turbo multilingual (best speed/quality)",
+    "displayName": "Whisper large-v3 turbo multilingual (balanced speed/quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
     "sha256": "UNVERIFIED",
     "sizeBytes": 574041195,

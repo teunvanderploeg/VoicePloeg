@@ -10,13 +10,16 @@ enum TextInsertionMethod: String {
 
 @MainActor
 protocol TextOutputController {
-    func insert(_ text: String) async throws -> TextInsertionMethod
+    func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod
 }
 
 enum TextOutputError: Error, LocalizedError {
     case emptyText
     case accessibilityUnavailable
     case insertionFailed
+    case targetApplicationUnavailable
+    case targetActivationFailed
+    case targetFocusUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -26,7 +29,34 @@ enum TextOutputError: Error, LocalizedError {
             return "Accessibility permission is missing"
         case .insertionFailed:
             return "Unable to insert text into focused app"
+        case .targetApplicationUnavailable:
+            return "The original target app is no longer available. The transcript was saved in History."
+        case .targetActivationFailed:
+            return "The original target app could not be brought to the front. The transcript was saved in History."
+        case .targetFocusUnavailable:
+            return "The original target app no longer has a verified text focus. The transcript was saved in History."
         }
+    }
+}
+
+enum TextOutputTargetPolicy {
+    static func isFrontmostTarget(
+        targetProcessID: pid_t,
+        frontmostProcessID: pid_t?
+    ) -> Bool {
+        targetProcessID > 0 && frontmostProcessID == targetProcessID
+    }
+
+    static func isVerified(
+        targetProcessID: pid_t,
+        frontmostProcessID: pid_t?,
+        focusedProcessID: pid_t?
+    ) -> Bool {
+        isFrontmostTarget(
+            targetProcessID: targetProcessID,
+            frontmostProcessID: frontmostProcessID
+        )
+            && focusedProcessID == targetProcessID
     }
 }
 
@@ -36,7 +66,7 @@ final class ActiveAppTextOutputController: TextOutputController {
         let changeCount: Int
     }
 
-    func insert(_ text: String) async throws -> TextInsertionMethod {
+    func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw TextOutputError.emptyText
@@ -46,61 +76,140 @@ final class ActiveAppTextOutputController: TextOutputController {
             throw TextOutputError.accessibilityUnavailable
         }
 
-        if insertUsingAccessibility(trimmed) {
-            return .accessibility
+        try await activateAndVerifyTarget(processID: targetProcessID)
+
+        do {
+            if try insertUsingAccessibility(trimmed, targetProcessID: targetProcessID) {
+                return .accessibility
+            }
+        } catch TextOutputError.targetFocusUnavailable {
+            // Some complex editors, including Word, do not expose a settable
+            // focused text element even though they accept a regular paste.
         }
 
-        try insertUsingClipboardPaste(trimmed)
+        try insertUsingClipboardPaste(trimmed, targetProcessID: targetProcessID)
         return .clipboardPaste
     }
 
-    private func insertUsingAccessibility(_ text: String) -> Bool {
-        let systemWide = AXUIElementCreateSystemWide()
-        var focusedObject: CFTypeRef?
-        let focusedStatus = AXUIElementCopyAttributeValue(
-            systemWide,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedObject
+    private func activateAndVerifyTarget(processID: pid_t) async throws {
+        guard processID > 0, let app = NSRunningApplication(processIdentifier: processID), !app.isTerminated else {
+            throw TextOutputError.targetApplicationUnavailable
+        }
+
+        if frontmostProcessID() != processID {
+            _ = app.activate(options: [])
+        }
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while frontmostProcessID() != processID, ContinuousClock.now < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        guard frontmostProcessID() == processID else {
+            throw TextOutputError.targetActivationFailed
+        }
+    }
+
+    private func insertUsingAccessibility(_ text: String, targetProcessID: pid_t) throws -> Bool {
+        let focusedElement = try verifiedFocusedElement(targetProcessID: targetProcessID)
+        var isSettable = DarwinBoolean(false)
+        let settableStatus = AXUIElementIsAttributeSettable(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &isSettable
         )
-
-        guard focusedStatus == .success, let focusedObject else {
+        guard settableStatus == .success, isSettable.boolValue else {
             return false
         }
-
-        guard CFGetTypeID(focusedObject) == AXUIElementGetTypeID() else {
-            return false
-        }
-        let focusedElement = unsafeDowncast(focusedObject, to: AXUIElement.self)
 
         let selectedStatus = AXUIElementSetAttributeValue(
             focusedElement,
             kAXSelectedTextAttribute as CFString,
             text as CFTypeRef
         )
-        if selectedStatus == .success {
-            return true
-        }
-
-        return false
+        return selectedStatus == .success
     }
 
-    private func insertUsingClipboardPaste(_ text: String) throws {
+    private func verifiedFocusedElement(targetProcessID: pid_t) throws -> AXUIElement {
+        let targetApplication = AXUIElementCreateApplication(targetProcessID)
+        var focusedObject: CFTypeRef?
+        let focusedStatus = AXUIElementCopyAttributeValue(
+            targetApplication,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedObject
+        )
+
+        guard focusedStatus == .success, let focusedObject else {
+            throw TextOutputError.targetFocusUnavailable
+        }
+
+        guard CFGetTypeID(focusedObject) == AXUIElementGetTypeID() else {
+            throw TextOutputError.targetFocusUnavailable
+        }
+        let focusedElement = unsafeDowncast(focusedObject, to: AXUIElement.self)
+
+        var focusedProcessID = pid_t(0)
+        let processStatus = AXUIElementGetPid(focusedElement, &focusedProcessID)
+        guard
+            processStatus == .success,
+            TextOutputTargetPolicy.isVerified(
+                targetProcessID: targetProcessID,
+                frontmostProcessID: frontmostProcessID(),
+                focusedProcessID: focusedProcessID
+            )
+        else {
+            throw TextOutputError.targetFocusUnavailable
+        }
+
+        return focusedElement
+    }
+
+    private func frontmostProcessID() -> pid_t? {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    private func insertUsingClipboardPaste(_ text: String, targetProcessID: pid_t) throws {
+        guard
+            TextOutputTargetPolicy.isFrontmostTarget(
+                targetProcessID: targetProcessID,
+                frontmostProcessID: frontmostProcessID()
+            )
+        else {
+            throw TextOutputError.targetActivationFailed
+        }
+
         let pasteboard = NSPasteboard.general
         let snapshot = snapshotPasteboard(pasteboard)
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
+        guard
+            TextOutputTargetPolicy.isFrontmostTarget(
+                targetProcessID: targetProcessID,
+                frontmostProcessID: frontmostProcessID()
+            )
+        else {
+            restorePasteboard(pasteboard, from: snapshot)
+            throw TextOutputError.targetActivationFailed
+        }
+
         guard let source = CGEventSource(stateID: .hidSystemState) else {
+            restorePasteboard(pasteboard, from: snapshot)
             throw TextOutputError.insertionFailed
         }
 
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        keyDown?.flags = .maskCommand
-        keyUp?.flags = .maskCommand
-        keyDown?.post(tap: .cgAnnotatedSessionEventTap)
-        keyUp?.post(tap: .cgAnnotatedSessionEventTap)
+        guard
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+        else {
+            restorePasteboard(pasteboard, from: snapshot)
+            throw TextOutputError.insertionFailed
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.postToPid(targetProcessID)
+        keyUp.postToPid(targetProcessID)
 
         if !snapshot.items.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {

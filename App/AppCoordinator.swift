@@ -1,17 +1,6 @@
+import AppKit
 import Combine
 import Foundation
-import AppKit
-
-enum InputRoutingError: Error, LocalizedError {
-    case preferredInputUnavailable
-
-    var errorDescription: String? {
-        switch self {
-        case .preferredInputUnavailable:
-            return UserFacingMessage.preferredInputUnavailable
-        }
-    }
-}
 
 @MainActor
 final class AppCoordinator: ObservableObject {
@@ -39,6 +28,8 @@ final class AppCoordinator: ObservableObject {
     private var previousDefaultInputDeviceID: UInt32?
     private var outputTargetProcessID: pid_t?
     private var languageFeedbackTask: Task<Void, Never>?
+    private var inputRecoveryTask: Task<Void, Never>?
+    private var isWaitingForInputDevice = false
 
     init(
         settings: AppSettings,
@@ -89,6 +80,12 @@ final class AppCoordinator: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        audioInputDeviceManager.setInputDeviceChangeHandler { [weak self] in
+            Task { @MainActor in
+                self?.refreshInputDevices()
+            }
+        }
 
         register(settings.hotkey)
         refreshInputDevices()
@@ -154,6 +151,53 @@ final class AppCoordinator: ObservableObject {
 
     func refreshInputDevices() {
         availableInputDevices = audioInputDeviceManager.availableInputDevices()
+
+        guard !availableInputDevices.isEmpty else {
+            isWaitingForInputDevice = true
+            scheduleInputDeviceRecovery()
+            switch state {
+            case .idle, .error:
+                state = .error(message: UserFacingMessage.noInputDeviceAvailable)
+            case .listening, .processing:
+                break
+            }
+            return
+        }
+
+        do {
+            try recoverDefaultInputDeviceIfNeeded(prefersBuiltIn: isWaitingForInputDevice)
+            if isWaitingForInputDevice {
+                isWaitingForInputDevice = false
+                inputRecoveryTask?.cancel()
+                inputRecoveryTask = nil
+                if case .error = state {
+                    state = .idle
+                }
+            }
+        } catch {
+            isWaitingForInputDevice = true
+            scheduleInputDeviceRecovery()
+            switch state {
+            case .idle, .error:
+                state = .error(message: UserFacingMessage.inputDeviceRecoveryFailed)
+            case .listening, .processing:
+                break
+            }
+        }
+    }
+
+    private func scheduleInputDeviceRecovery() {
+        guard inputRecoveryTask == nil else { return }
+
+        inputRecoveryTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+
+                self.refreshInputDevices()
+                guard self.isWaitingForInputDevice else { return }
+            }
+        }
     }
 
     func preferredInputDevice() -> AudioInputDevice? {
@@ -240,6 +284,9 @@ final class AppCoordinator: ObservableObject {
 
         do {
             refreshInputDevices()
+            guard !availableInputDevices.isEmpty else {
+                return
+            }
             try applyPreferredInputDeviceIfNeeded()
             await settleAfterInputDeviceSwitchIfNeeded()
             if
@@ -277,8 +324,13 @@ final class AppCoordinator: ObservableObject {
             let trimmedTranscript = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedTranscript.isEmpty {
                 settings.addTranscriptToHistory(trimmedTranscript, maxItems: ReleaseConfig.maxTranscriptHistoryItems)
-                await activateOutputTargetAppIfNeeded()
-                _ = try await textOutputController.insert(result.text)
+                guard let outputTargetProcessID else {
+                    throw TextOutputError.targetApplicationUnavailable
+                }
+                _ = try await textOutputController.insert(
+                    result.text,
+                    targetProcessID: outputTargetProcessID
+                )
             }
 
             outputTargetProcessID = nil
@@ -318,14 +370,32 @@ final class AppCoordinator: ObservableObject {
     private func applyPreferredInputDeviceIfNeeded() throws {
         previousDefaultInputDeviceID = nil
 
-        guard let preferredID = settings.preferredInputDeviceID else { return }
+        guard let preferredID = settings.preferredInputDeviceID else {
+            try recoverDefaultInputDeviceIfNeeded()
+            return
+        }
         guard availableInputDevices.contains(where: { $0.id == preferredID }) else {
-            throw InputRoutingError.preferredInputUnavailable
+            try recoverDefaultInputDeviceIfNeeded(prefersBuiltIn: true)
+            return
         }
 
-        if let currentID = audioInputDeviceManager.defaultInputDeviceID(), currentID != preferredID {
-            previousDefaultInputDeviceID = currentID
+        let currentID = audioInputDeviceManager.defaultInputDeviceID()
+        if currentID != preferredID {
+            if let currentID, availableInputDevices.contains(where: { $0.id == currentID }) {
+                previousDefaultInputDeviceID = currentID
+            }
             try audioInputDeviceManager.setDefaultInputDeviceID(preferredID)
+        }
+    }
+
+    private func recoverDefaultInputDeviceIfNeeded(prefersBuiltIn: Bool = false) throws {
+        let fallback = AudioInputRecovery.fallbackDevice(
+            in: availableInputDevices,
+            currentDefaultID: audioInputDeviceManager.defaultInputDeviceID(),
+            prefersBuiltIn: prefersBuiltIn
+        )
+        if let fallback {
+            try audioInputDeviceManager.setDefaultInputDeviceID(fallback.id)
         }
     }
 
@@ -354,6 +424,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func captureOutputTargetApp() {
+        outputTargetProcessID = nil
         let selfPID = ProcessInfo.processInfo.processIdentifier
         guard
             let frontmost = NSWorkspace.shared.frontmostApplication,
@@ -362,14 +433,5 @@ final class AppCoordinator: ObservableObject {
             return
         }
         outputTargetProcessID = frontmost.processIdentifier
-    }
-
-    private func activateOutputTargetAppIfNeeded() async {
-        guard let pid = outputTargetProcessID else { return }
-        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
-
-        app.activate(options: [])
-        // Give the target app a brief moment to become key before insertion.
-        try? await Task.sleep(nanoseconds: 120_000_000)
     }
 }

@@ -10,8 +10,9 @@ enum ReleaseConfig {
 enum UserFacingMessage {
     static let selectedModelNotFound = "Selected model not found in catalog"
     static let microphonePermissionDenied = "Microphone permission denied"
-    static let preferredInputUnavailable = "Preferred recording input is not available. Connect it or choose another input device."
     static let audioRouteNotReady = "Audio route is still switching (often Bluetooth/HFP). Please try again in a second."
+    static let noInputDeviceAvailable = "No recording input is currently available. VoicePloeg will reconnect automatically when a microphone appears."
+    static let inputDeviceRecoveryFailed = "A recording input appeared, but VoicePloeg could not activate it yet. It will retry when audio devices change."
 
     static func bluetoothInputBlocked(_ inputName: String) -> String {
         "Recording blocked because the selected input (\(inputName)) is Bluetooth/HFP. Disable the Bluetooth warning or choose a non-Bluetooth input."

@@ -1,5 +1,14 @@
 import Foundation
 
+enum WhisperTranscriptNormalizer {
+    static func normalize(_ text: String) -> String {
+        text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+}
+
 enum WhisperTranscriberError: Error, LocalizedError {
     case modelNotLoaded
     case whisperCLINotFound(String)
@@ -118,13 +127,14 @@ private actor WhisperWorker {
             throw WhisperTranscriberError.processFailed(stderrString)
         }
 
-        let outputText: String
+        let rawOutputText: String
         if FileManager.default.fileExists(atPath: outputTxtURL.path) {
-            outputText = (try String(contentsOf: outputTxtURL)).trimmingCharacters(in: .whitespacesAndNewlines)
+            rawOutputText = try String(contentsOf: outputTxtURL)
         } else {
             let stdoutData = stdOut.fileHandleForReading.readDataToEndOfFile()
-            outputText = (String(data: stdoutData, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            rawOutputText = String(data: stdoutData, encoding: .utf8) ?? ""
         }
+        let outputText = WhisperTranscriptNormalizer.normalize(rawOutputText)
 
         let duration = Double(samples.count) / 16_000
         let processing = Date().timeIntervalSince(startedAt)
