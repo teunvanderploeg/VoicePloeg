@@ -3,7 +3,7 @@
     "id": "ggml-tiny.en-q5_1",
     "displayName": "Whisper tiny.en (fastest, English)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b",
     "sizeBytes": 32166155,
     "languageSupport": ["en"],
     "quantization": "q5_1"
@@ -12,7 +12,7 @@
     "id": "ggml-base.en-q5_1",
     "displayName": "Whisper base.en (balanced, English)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f",
     "sizeBytes": 59721011,
     "languageSupport": ["en"],
     "quantization": "q5_1"
@@ -21,7 +21,7 @@
     "id": "ggml-small.en-q5_1",
     "displayName": "Whisper small.en (better quality, English)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
     "sizeBytes": 190098681,
     "languageSupport": ["en"],
     "quantization": "q5_1"
@@ -30,7 +30,7 @@
     "id": "ggml-small.en",
     "displayName": "Whisper small.en (high quality, English)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
     "sizeBytes": 487614201,
     "languageSupport": ["en"],
     "quantization": "fp16"
@@ -39,7 +39,7 @@
     "id": "ggml-medium.en-q5_0",
     "displayName": "Whisper medium.en (high quality, English)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0",
     "sizeBytes": 539225533,
     "languageSupport": ["en"],
     "quantization": "q5_0"
@@ -48,7 +48,7 @@
     "id": "ggml-medium.en",
     "displayName": "Whisper medium.en (max quality, English)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "cc37e93478338ec7700281a7ac30a10128929eb8f427dda2e865faa8f6da4356",
     "sizeBytes": 1533774781,
     "languageSupport": ["en"],
     "quantization": "fp16"
@@ -57,7 +57,7 @@
     "id": "ggml-base-q5_1",
     "displayName": "Whisper base multilingual (balanced)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
     "sizeBytes": 59707625,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q5_1"
@@ -66,7 +66,7 @@
     "id": "ggml-small-q5_1",
     "displayName": "Whisper small multilingual (better quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
     "sizeBytes": 190085487,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q5_1"
@@ -75,7 +75,7 @@
     "id": "ggml-small",
     "displayName": "Whisper small multilingual (high quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
     "sizeBytes": 487601967,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "fp16"
@@ -84,7 +84,7 @@
     "id": "ggml-medium-q5_0",
     "displayName": "Whisper medium multilingual (high quality, faster)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f",
     "sizeBytes": 539212467,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q5_0"
@@ -93,7 +93,7 @@
     "id": "ggml-medium-q8_0",
     "displayName": "Whisper medium multilingual (very high quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q8_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "42a1ffcbe4167d224232443396968db4d02d4e8e87e213d3ee2e03095dea6502",
     "sizeBytes": 823369779,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q8_0"
@@ -102,7 +102,7 @@
     "id": "ggml-medium",
     "displayName": "Whisper medium multilingual (max quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
     "sizeBytes": 1533763059,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "fp16"
@@ -111,7 +111,7 @@
     "id": "ggml-large-v2-q5_0",
     "displayName": "Whisper large-v2 multilingual (excellent quality, faster)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2-q5_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "3a214837221e4530dbc1fe8d734f302af393eb30bd0ed046042ebf4baf70f6f2",
     "sizeBytes": 1080732091,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q5_0"
@@ -120,7 +120,7 @@
     "id": "ggml-large-v2-q8_0",
     "displayName": "Whisper large-v2 multilingual (excellent quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2-q8_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "fef54e6d898246a65c8285bfa83bd1807e27fadf54d5d4e81754c47634737e8c",
     "sizeBytes": 1656129691,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q8_0"
@@ -129,7 +129,7 @@
     "id": "ggml-large-v2",
     "displayName": "Whisper large-v2 multilingual (maximum quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "9a423fe4d40c82774b6af34115b8b935f34152246eb19e80e376071d3f999487",
     "sizeBytes": 3094623691,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "fp16"
@@ -138,7 +138,7 @@
     "id": "ggml-large-v3-q5_0",
     "displayName": "Whisper large-v3 multilingual (accuracy first, slower)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
     "sizeBytes": 1081140203,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q5_0"
@@ -147,7 +147,7 @@
     "id": "ggml-large-v3-turbo-q5_0",
     "displayName": "Whisper large-v3 turbo multilingual (balanced speed/quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
     "sizeBytes": 574041195,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q5_0"
@@ -156,7 +156,7 @@
     "id": "ggml-large-v3-turbo-q8_0",
     "displayName": "Whisper large-v3 turbo multilingual (high quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
     "sizeBytes": 874188075,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "q8_0"
@@ -165,7 +165,7 @@
     "id": "ggml-large-v3-turbo",
     "displayName": "Whisper large-v3 turbo multilingual (max quality)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
     "sizeBytes": 1624555275,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "fp16"
@@ -174,9 +174,53 @@
     "id": "ggml-large-v3",
     "displayName": "Whisper large-v3 multilingual (highest accuracy)",
     "downloadURL": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-    "sha256": "UNVERIFIED",
+    "sha256": "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
     "sizeBytes": 3095033483,
     "languageSupport": ["auto", "en", "nl", "de", "fr", "es"],
     "quantization": "fp16"
+  },
+  {
+    "id": "crisper-whisper-2-small",
+    "backend": "crisperWhisper",
+    "displayName": "CrisperWhisper 2.0 small (lowest footprint)",
+    "repositoryID": "nyralabs/CrisperWhisper2.0_small",
+    "revision": "dbb990d5817659bfe2033835fb6e696ee18ebca0",
+    "sizeBytes": 483575002,
+    "languageSupport": ["en", "nl", "de", "fr", "es"],
+    "precision": "fp16",
+    "licenseIdentifier": "nyra-health-non-commercial-research"
+  },
+  {
+    "id": "crisper-whisper-2-medium",
+    "backend": "crisperWhisper",
+    "displayName": "CrisperWhisper 2.0 medium (recommended)",
+    "repositoryID": "nyralabs/CrisperWhisper2.0_medium",
+    "revision": "ca981a994a008f70b7ce343ef1e261ff7eadc1d9",
+    "sizeBytes": 1527894410,
+    "languageSupport": ["en", "nl", "de", "fr", "es"],
+    "precision": "fp16",
+    "licenseIdentifier": "nyra-health-non-commercial-research"
+  },
+  {
+    "id": "crisper-whisper-2-turbo",
+    "backend": "crisperWhisper",
+    "displayName": "CrisperWhisper 2.0 turbo (fastest decoder)",
+    "repositoryID": "nyralabs/CrisperWhisper2.0_turbo",
+    "revision": "16424a0a0dad3d7bcc08927451718da49bce8ce0",
+    "sizeBytes": 1617907538,
+    "languageSupport": ["en", "nl", "de", "fr", "es"],
+    "precision": "fp16",
+    "licenseIdentifier": "nyra-health-non-commercial-research"
+  },
+  {
+    "id": "crisper-whisper-2-large",
+    "backend": "crisperWhisper",
+    "displayName": "CrisperWhisper 2.0 large (highest quality)",
+    "repositoryID": "nyralabs/CrisperWhisper2.0_large",
+    "revision": "fe94128aee7cdf1ad43ab59c4b1f7ed6362c1106",
+    "sizeBytes": 3086843114,
+    "languageSupport": ["en", "nl", "de", "fr", "es"],
+    "precision": "fp16",
+    "licenseIdentifier": "nyra-health-non-commercial-research"
   }
 ]

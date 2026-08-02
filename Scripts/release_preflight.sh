@@ -8,6 +8,10 @@ MODEL_CATALOG="$ROOT_DIR/Resources/ModelCatalog.json"
 WHISPER_CLI="$ROOT_DIR/Vendor/whisper.cpp/build/bin/whisper-cli"
 WHISPER_REPO="$ROOT_DIR/Vendor/whisper.cpp"
 WHISPER_VERSION_FILE="$ROOT_DIR/Scripts/whisper.version"
+CRISPER_VERSION_FILE="$ROOT_DIR/Scripts/crisper.version"
+CRISPER_REQUIREMENTS="$ROOT_DIR/Resources/CrisperWorker/requirements.lock"
+CRISPER_WORKER="$ROOT_DIR/Resources/CrisperWorker/worker.py"
+CRISPER_UV="$ROOT_DIR/Resources/CrisperWorker/uv"
 
 STRICT_MODEL_CHECKSUMS="${STRICT_MODEL_CHECKSUMS:-1}"
 SKIP_XCODEBUILD="${SKIP_XCODEBUILD:-0}"
@@ -39,6 +43,7 @@ info "VoicePloeg release preflight started"
 require_cmd swift
 require_cmd xcodegen
 require_cmd xcodebuild
+require_cmd python3
 
 cd "$ROOT_DIR"
 
@@ -110,5 +115,40 @@ if pattern_exists '"sha256"[[:space:]]*:[[:space:]]*"UNVERIFIED"' "$MODEL_CATALO
     warn "Model catalog still contains UNVERIFIED sha256 entries (STRICT_MODEL_CHECKSUMS=$STRICT_MODEL_CHECKSUMS)"
   fi
 fi
+
+if [[ ! -f "$CRISPER_VERSION_FILE" || ! -f "$CRISPER_REQUIREMENTS" || ! -f "$CRISPER_WORKER" ]]; then
+  fail "CrisperWhisper pinned runtime resources are incomplete"
+fi
+
+# shellcheck source=/dev/null
+source "$CRISPER_VERSION_FILE"
+pattern_exists "crisperwhisper.*==${CRISPERWHISPER_VERSION}" "$CRISPER_REQUIREMENTS" \
+  || fail "CrisperWhisper lock does not match Scripts/crisper.version"
+pattern_exists 'sha256:' "$CRISPER_REQUIREMENTS" \
+  || fail "CrisperWhisper lock has no package hashes"
+
+if [[ "$(uname -m)" == "arm64" ]]; then
+  [[ -x "$CRISPER_UV" ]] || fail "Pinned uv executable missing; run Scripts/bootstrap_crisper_runtime.sh"
+  UV_OUTPUT="$("$CRISPER_UV" --version)"
+  [[ "$UV_OUTPUT" == "uv ${UV_VERSION}"* ]] || fail "Bundled uv version mismatch"
+fi
+
+python3 -m unittest discover -s "$ROOT_DIR/Tests/CrisperWorkerTests" -v
+
+python3 - "$MODEL_CATALOG" <<'PY'
+import json
+import re
+import sys
+
+items = json.load(open(sys.argv[1], encoding="utf-8"))
+crisper = [item for item in items if item.get("backend") == "crisperWhisper"]
+if len(crisper) != 4:
+    raise SystemExit("expected four CrisperWhisper models")
+for item in crisper:
+    if not re.fullmatch(r"[0-9a-f]{40}", item.get("revision", "")):
+        raise SystemExit(f"unpinned CrisperWhisper revision: {item.get('id')}")
+    if item.get("licenseIdentifier") != "nyra-health-non-commercial-research":
+        raise SystemExit(f"missing CrisperWhisper license metadata: {item.get('id')}")
+PY
 
 info "Release preflight completed"

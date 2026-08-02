@@ -9,6 +9,8 @@ final class AppCoordinator: ObservableObject {
     @Published var accessibilityDiagnostics: AccessibilityDiagnostics
     @Published var lastTranscript: String = ""
     @Published var isDownloadingModel = false
+    @Published var isInstallingCrisperRuntime = false
+    @Published var crisperRuntimeStatus: CrisperRuntimeStatus = .notInstalled
     @Published var availableInputDevices: [AudioInputDevice] = []
     /// Non-nil for 2 seconds after a language switch; contains the flag emoji for the new language.
     @Published var languageFeedbackFlag: String? = nil
@@ -18,7 +20,8 @@ final class AppCoordinator: ObservableObject {
 
     private let permissionController: PermissionController
     private let recordingController: RecordingController
-    private let transcriber: SpeechTranscriber
+    private let transcriber: SpeechTranscriptionService
+    private let crisperRuntimeManager: CrisperRuntimeManager
     private let textOutputController: TextOutputController
     private let hotkeyService: GlobalHotkeyService
     private let audioInputDeviceManager: AudioInputDeviceManaging
@@ -27,9 +30,11 @@ final class AppCoordinator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var previousDefaultInputDeviceID: UInt32?
     private var outputTargetProcessID: pid_t?
+    private var recordingTranscriptionSelection: RecordingTranscriptionSelection?
     private var languageFeedbackTask: Task<Void, Never>?
     private var inputRecoveryTask: Task<Void, Never>?
     private var isWaitingForInputDevice = false
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     init(
         settings: AppSettings,
@@ -39,7 +44,8 @@ final class AppCoordinator: ObservableObject {
         textOutputController: TextOutputController,
         hotkeyService: GlobalHotkeyService,
         audioInputDeviceManager: AudioInputDeviceManaging,
-        recordingFeedbackPlayer: RecordingFeedbackPlayer
+        recordingFeedbackPlayer: RecordingFeedbackPlayer,
+        crisperRuntimeManager: CrisperRuntimeManager = CrisperRuntimeManager()
     ) {
         self.settings = settings
         self.modelManager = modelManager
@@ -49,8 +55,11 @@ final class AppCoordinator: ObservableObject {
         self.hotkeyService = hotkeyService
         self.audioInputDeviceManager = audioInputDeviceManager
         self.recordingFeedbackPlayer = recordingFeedbackPlayer
+        self.crisperRuntimeManager = crisperRuntimeManager
 
-        transcriber = WhisperCppTranscriber(cliPathProvider: { settings.whisperCLIPath })
+        transcriber = SpeechTranscriptionService(
+            crisperTranscriber: CrisperWhisperTranscriber(runtimeManager: crisperRuntimeManager)
+        )
         permissionStatus = permissionController.currentStatus()
         accessibilityDiagnostics = permissionController.accessibilityDiagnostics()
 
@@ -81,6 +90,25 @@ final class AppCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$selectedTranscriptionBackend
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard self.state != .processing else { return }
+                Task { await self.transcriber.unloadCrisperModel() }
+            }
+            .store(in: &cancellables)
+
+        settings.$selectedCrisperModelID
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard self.state != .processing else { return }
+                Task { await self.transcriber.unloadCrisperModel() }
+            }
+            .store(in: &cancellables)
+
         audioInputDeviceManager.setInputDeviceChangeHandler { [weak self] in
             Task { @MainActor in
                 self?.refreshInputDevices()
@@ -89,6 +117,10 @@ final class AppCoordinator: ObservableObject {
 
         register(settings.hotkey)
         refreshInputDevices()
+        configureMemoryPressureHandling()
+        Task { [weak self] in
+            await self?.refreshCrisperRuntimeStatus()
+        }
     }
 
     convenience init() {
@@ -254,7 +286,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     func downloadSelectedModel() async {
-        guard let item = modelManager.catalog.first(where: { $0.id == settings.selectedModelID }) else {
+        guard let item = selectedModel() else {
             state = .error(message: UserFacingMessage.selectedModelNotFound)
             return
         }
@@ -263,21 +295,119 @@ final class AppCoordinator: ObservableObject {
         defer { isDownloadingModel = false }
 
         do {
-            let localURL = try await modelManager.ensureModelAvailable(item)
-            settings.activeModelPath = localURL.path
+            if item.backend == .crisperWhisper {
+                guard settings.acceptedCrisperLicenseVersion == ReleaseConfig.crisperLicenseVersion else {
+                    throw CrisperRuntimeError.modelInstallationFailed(UserFacingMessage.crisperLicenseNotAccepted)
+                }
+                guard case .ready = crisperRuntimeStatus else {
+                    throw CrisperRuntimeError.runtimeNotInstalled
+                }
+                let destination = try modelManager.localURL(for: item)
+                try await crisperRuntimeManager.installModel(item, destination: destination)
+            } else {
+                let localURL = try await modelManager.ensureModelAvailable(item)
+                settings.activeModelPath = localURL.path
+            }
             state = .idle
         } catch {
             state = .error(message: error.localizedDescription)
         }
     }
 
+    func removeSelectedModel() async {
+        guard let item = selectedModel() else { return }
+        if item.backend == .crisperWhisper {
+            await transcriber.unloadCrisperModel()
+        }
+        do {
+            try modelManager.removeModel(item)
+            if item.backend == .whisperCpp {
+                settings.activeModelPath = nil
+            }
+            state = .idle
+        } catch {
+            state = .error(message: error.localizedDescription)
+        }
+    }
+
+    func acceptCrisperLicense() {
+        settings.acceptedCrisperLicenseVersion = ReleaseConfig.crisperLicenseVersion
+    }
+
+    func installCrisperRuntime() async {
+        isInstallingCrisperRuntime = true
+        crisperRuntimeStatus = .installing
+        defer { isInstallingCrisperRuntime = false }
+        do {
+            try await crisperRuntimeManager.install()
+            await refreshCrisperRuntimeStatus()
+            state = .idle
+        } catch {
+            crisperRuntimeStatus = .failed(message: error.localizedDescription)
+            state = .error(message: error.localizedDescription)
+        }
+    }
+
+    func removeCrisperRuntime() async {
+        await transcriber.unloadCrisperModel()
+        do {
+            try await crisperRuntimeManager.remove()
+            await refreshCrisperRuntimeStatus()
+        } catch {
+            crisperRuntimeStatus = .failed(message: error.localizedDescription)
+        }
+    }
+
+    func refreshCrisperRuntimeStatus() async {
+        crisperRuntimeStatus = await crisperRuntimeManager.status()
+    }
+
+    func selectedModel() -> SpeechModelDescriptor? {
+        modelManager.model(id: settings.selectedModelID, backend: settings.selectedTranscriptionBackend)
+    }
+
+    func canUseSelectedBackend() -> Bool {
+        guard settings.selectedTranscriptionBackend == .crisperWhisper else { return true }
+        guard settings.selectedLanguage != "auto", case .ready = crisperRuntimeStatus else { return false }
+        guard let model = selectedModel() else { return false }
+        return modelManager.isDownloaded(model)
+    }
+
     private func startRecording() async {
+        guard let selectedModel = selectedModel() else {
+            state = .error(message: UserFacingMessage.selectedModelNotFound)
+            return
+        }
+        if settings.selectedTranscriptionBackend == .crisperWhisper {
+            guard CrisperRuntimeManager.isCompatibleHardware else {
+                state = .error(message: UserFacingMessage.crisperIncompatibleHardware)
+                return
+            }
+            guard settings.selectedLanguage != "auto" else {
+                state = .error(message: UserFacingMessage.crisperRequiresExplicitLanguage)
+                return
+            }
+            guard case .ready = crisperRuntimeStatus else {
+                state = .error(message: UserFacingMessage.crisperRuntimeMissing)
+                return
+            }
+            guard modelManager.isDownloaded(selectedModel) else {
+                state = .error(message: UserFacingMessage.crisperModelMissing)
+                return
+            }
+        }
+        recordingTranscriptionSelection = RecordingTranscriptionSelection(
+            model: selectedModel,
+            language: settings.selectedLanguage,
+            whisperCLIPath: settings.whisperCLIPath
+        )
         captureOutputTargetApp()
 
         let micGranted = await permissionController.requestMicrophoneIfNeeded()
         permissionStatus = permissionController.currentStatus()
 
         guard micGranted else {
+            recordingTranscriptionSelection = nil
             state = .error(message: UserFacingMessage.microphonePermissionDenied)
             return
         }
@@ -285,6 +415,7 @@ final class AppCoordinator: ObservableObject {
         do {
             refreshInputDevices()
             guard !availableInputDevices.isEmpty else {
+                recordingTranscriptionSelection = nil
                 return
             }
             try applyPreferredInputDeviceIfNeeded()
@@ -294,6 +425,7 @@ final class AppCoordinator: ObservableObject {
                 let effectiveInput = effectiveRecordingInputDevice(),
                 effectiveInput.isBluetooth
             {
+                recordingTranscriptionSelection = nil
                 restorePreviousInputDeviceIfNeeded()
                 state = .error(message: UserFacingMessage.bluetoothInputBlocked(effectiveInput.name))
                 return
@@ -302,6 +434,7 @@ final class AppCoordinator: ObservableObject {
             recordingFeedbackPlayer.playStartCue()
             state = .listening(startedAt: Date())
         } catch {
+            recordingTranscriptionSelection = nil
             restorePreviousInputDeviceIfNeeded()
             state = .error(message: userFacingRecordingError(error))
         }
@@ -309,16 +442,25 @@ final class AppCoordinator: ObservableObject {
 
     private func stopRecordingAndTranscribe() async {
         state = .processing
+        defer { recordingTranscriptionSelection = nil }
 
         do {
             let samples = try await recordingController.stop()
             recordingFeedbackPlayer.playStopCue()
             restorePreviousInputDeviceIfNeeded()
 
-            let modelURL = try await resolveModelURL()
-            try await transcriber.loadModel(at: modelURL)
-            let language = settings.selectedLanguage == "auto" ? nil : settings.selectedLanguage
-            let result = try await transcriber.transcribe(samples: samples, language: language)
+            guard let selection = recordingTranscriptionSelection else {
+                throw ModelManagerError.catalogNotFound
+            }
+            let modelURL = try await resolveModelURL(selection.model)
+            let request = TranscriptionRequest(
+                samples: samples,
+                model: selection.model,
+                localModelURL: modelURL,
+                language: selection.language,
+                whisperCLIPath: selection.whisperCLIPath
+            )
+            let result = try await transcriber.transcribe(request)
 
             lastTranscript = result.text
             let trimmedTranscript = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -342,18 +484,18 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func resolveModelURL() async throws -> URL {
-        if
+    private func resolveModelURL(_ item: SpeechModelDescriptor) async throws -> URL {
+        if modelManager.isDownloaded(item) {
+            return try modelManager.localURL(for: item)
+        }
+        if item.backend == .whisperCpp,
             let path = settings.activeModelPath,
-            FileManager.default.fileExists(atPath: path)
+            FileManager.default.fileExists(atPath: path),
+            URL(fileURLWithPath: path).lastPathComponent.contains(item.id)
         {
             return URL(fileURLWithPath: path)
         }
-
-        guard let item = modelManager.catalog.first(where: { $0.id == settings.selectedModelID }) else {
-            throw ModelManagerError.catalogNotFound
-        }
-
+        guard item.backend == .whisperCpp else { throw CrisperTranscriberError.modelMissing }
         let localURL = try await modelManager.ensureModelAvailable(item)
         settings.activeModelPath = localURL.path
         return localURL
@@ -434,4 +576,23 @@ final class AppCoordinator: ObservableObject {
         }
         outputTargetProcessID = frontmost.processIdentifier
     }
+
+    private func configureMemoryPressureHandling() {
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            Task { await self.transcriber.unloadCrisperModel() }
+        }
+        source.resume()
+        memoryPressureSource = source
+    }
+}
+
+private struct RecordingTranscriptionSelection {
+    let model: SpeechModelDescriptor
+    let language: String
+    let whisperCLIPath: String
 }

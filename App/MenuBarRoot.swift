@@ -82,7 +82,10 @@ struct MenuBarRoot: View {
         switch coordinator.settings.selectedLanguage {
         case "en": return "English"
         case "nl": return "Dutch"
-        default:   return "Auto"
+        case "de": return "German"
+        case "fr": return "French"
+        case "es": return "Spanish"
+        default: return "Auto"
         }
     }
 

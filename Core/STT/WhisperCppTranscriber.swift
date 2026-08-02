@@ -29,47 +29,33 @@ enum WhisperTranscriberError: Error, LocalizedError {
     }
 }
 
-final class WhisperCppTranscriber: SpeechTranscriber {
-    private var modelURL: URL?
-    private let cliPathProvider: () -> String
+final class WhisperCppTranscriber: SpeechTranscribing, @unchecked Sendable {
     private let timeoutSeconds: TimeInterval
     private let worker = WhisperWorker()
 
-    init(
-        cliPathProvider: @escaping () -> String,
-        timeoutSeconds: TimeInterval = 180
-    ) {
-        self.cliPathProvider = cliPathProvider
+    init(timeoutSeconds: TimeInterval = 180) {
         self.timeoutSeconds = timeoutSeconds
     }
 
-    func loadModel(at url: URL) async throws {
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            throw WhisperTranscriberError.modelNotLoaded
-        }
-        modelURL = url
-    }
-
-    func transcribe(samples: [Float], language: String?) async throws -> TranscriptResult {
-        guard let modelURL else {
+    func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptResult {
+        guard FileManager.default.fileExists(atPath: request.localModelURL.path) else {
             throw WhisperTranscriberError.modelNotLoaded
         }
 
-        if samples.isEmpty {
+        if request.samples.isEmpty {
             return TranscriptResult(text: "", segments: [], duration: 0, processingTime: 0)
         }
 
-        let configuredPath = cliPathProvider()
+        let configuredPath = request.whisperCLIPath ?? ""
         guard let cliPath = WhisperCLIResolver.resolve(configuredPath: configuredPath) else {
             throw WhisperTranscriberError.whisperCLINotFound(configuredPath)
         }
 
-        let activeModelPath = modelURL.path
         return try await worker.transcribe(
-            samples: samples,
-            language: language,
+            samples: request.samples,
+            language: request.language == "auto" ? nil : request.language,
             cliPath: cliPath,
-            modelPath: activeModelPath,
+            modelPath: request.localModelURL.path,
             timeoutSeconds: timeoutSeconds
         )
     }

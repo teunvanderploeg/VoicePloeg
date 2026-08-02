@@ -226,7 +226,11 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             speechModelCard
             languageCard
-            whisperCard
+            if coordinator.settings.selectedTranscriptionBackend == .whisperCpp {
+                whisperCard
+            } else {
+                crisperRuntimeCard
+            }
         }
     }
 
@@ -237,7 +241,10 @@ struct SettingsView: View {
     private var quickRuntimeCard: some View {
         SettingsCard(title: "Runtime", systemImage: "gauge.with.dots.needle.bottom.50percent") {
             VStack(alignment: .leading, spacing: 10) {
-                LabeledContent("Active Model", value: coordinator.settings.activeModelPath ?? "Not downloaded")
+                LabeledContent("Backend", value: coordinator.settings.selectedTranscriptionBackend.displayName)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Selected Model", value: coordinator.selectedModel()?.displayName ?? "Not selected")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -378,7 +385,9 @@ struct SettingsView: View {
         SettingsCard(title: "Language", systemImage: "globe") {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("Transcription Language", selection: $coordinator.settings.selectedLanguage) {
-                    Text("Auto").tag("auto")
+                    if coordinator.settings.selectedTranscriptionBackend == .whisperCpp {
+                        Text("Auto").tag("auto")
+                    }
                     Text("English").tag("en")
                     Text("Dutch").tag("nl")
                     Text("German").tag("de")
@@ -387,6 +396,13 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+
+                if coordinator.settings.selectedTranscriptionBackend == .crisperWhisper,
+                   coordinator.settings.selectedLanguage == "auto" {
+                    Label(UserFacingMessage.crisperRequiresExplicitLanguage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }
@@ -410,6 +426,63 @@ struct SettingsView: View {
                 Text("Auto-detect checks configured path, project Vendor build, and common Homebrew paths.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var crisperRuntimeCard: some View {
+        SettingsCard(title: "Local CrisperWhisper Runtime", systemImage: "cpu") {
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledContent("Runtime", value: coordinator.crisperRuntimeStatus.title)
+
+                Text("Inference runs entirely on this Mac. Internet is used only to install the runtime and selected model; transcription forces Hugging Face and Transformers offline mode.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if coordinator.settings.acceptedCrisperLicenseVersion != ReleaseConfig.crisperLicenseVersion {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("The standard CrisperWhisper 2.0 weights use the Nyra Health Non-Commercial Research License. Commercial use requires a separate license.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        HStack {
+                            Link(
+                                "Read Model License",
+                                destination: URL(string: "https://huggingface.co/nyralabs/CrisperWhisper2.0_large")!
+                            )
+                            Button("Accept for Non-Commercial Use") {
+                                coordinator.acceptCrisperLicense()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                } else {
+                    Label("Non-commercial model license accepted", systemImage: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+
+                HStack {
+                    switch coordinator.crisperRuntimeStatus {
+                    case .notInstalled, .failed:
+                        Button("Install Runtime") {
+                            Task { await coordinator.installCrisperRuntime() }
+                        }
+                        .disabled(coordinator.isInstallingCrisperRuntime)
+                    case .installing:
+                        ProgressView("Installing Python, PyTorch, and CrisperWhisper…")
+                    case .ready:
+                        Button("Repair Runtime") {
+                            Task { await coordinator.installCrisperRuntime() }
+                        }
+                        Button("Remove Runtime", role: .destructive) {
+                            Task { await coordinator.removeCrisperRuntime() }
+                        }
+                    case .incompatibleHardware:
+                        Text("Use whisper.cpp on this Mac.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

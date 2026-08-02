@@ -1,0 +1,4 @@
+crisperwhisper[transformers]==2.0.1
+# CrisperWhisper 2.0.1's transformers path imports this from hallucination.py
+# but its published transformers extra does not declare it.
+ctranslate2==4.7.1

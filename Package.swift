@@ -24,6 +24,7 @@ let package = Package(
                 "Tests",
                 "VoicePloeg.xcodeproj",
                 "project.yml",
+                "AGENTS.md",
                 "App/Info.plist",
                 "App/VoicePloeg.entitlements",
                 "App/Assets.xcassets",

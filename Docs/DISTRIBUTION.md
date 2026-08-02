@@ -32,3 +32,11 @@ System Settings > Privacy & Security > Accessibility
 - Secure input fields (passwords, protected views) may reject insertion.
 - Incorrect signing order of embedded binaries can break notarization.
 - Model downloads are external artifacts; maintain checksum metadata before release.
+
+## CrisperWhisper Runtime
+
+- Run `Scripts/bootstrap_crisper_runtime.sh` before archiving so the pinned `uv` installer is embedded.
+- CrisperWhisper is Apple Silicon-only and installs its Python/PyTorch environment under Application Support on demand.
+- The runtime and model downloads are the only networked operations. Inference explicitly enables Hugging Face and Transformers offline modes.
+- Standard CrisperWhisper weights use the Nyra Health Non-Commercial Research License. Do not commercially distribute them without a separate agreement.
+- Ensure the embedded `uv` executable is signed as nested code before the outer app is sealed and notarized.

@@ -23,6 +23,13 @@
 - Silence does not crash and produces empty/near-empty output.
 - Missing `whisper-cli` path produces actionable error.
 - Missing model path triggers download flow.
+- Existing installations remain on `whisper.cpp` after upgrade.
+- CrisperWhisper rejects Auto language before recording starts.
+- Accepting the non-commercial license enables local model download.
+- All four Crisper models show their independent installed state.
+- Crisper inference works after disconnecting the network.
+- Switching back to `whisper.cpp` unloads the Python worker.
+- Interrupted runtime/model installation can be retried without appearing installed.
 
 ## Text Output
 
@@ -35,3 +42,4 @@
 - Verify model remains loaded between transcriptions.
 - Measure end-to-end latency for 10s and 30s recordings on Apple Silicon.
 - Monitor memory while recording up to 120s cap.
+- Run `Scripts/benchmark_crisper_macos.py <local-model> <wav>` for cold/warm MPS timing and peak RSS.

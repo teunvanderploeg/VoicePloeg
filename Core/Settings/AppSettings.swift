@@ -8,8 +8,20 @@ struct TranscriptHistoryItem: Codable, Equatable, Identifiable {
 
 @MainActor
 final class AppSettings: ObservableObject {
-    @Published var selectedModelID: String {
-        didSet { userDefaults.set(selectedModelID, forKey: Keys.selectedModelID) }
+    @Published var selectedTranscriptionBackend: SpeechBackend {
+        didSet { userDefaults.set(selectedTranscriptionBackend.rawValue, forKey: Keys.selectedTranscriptionBackend) }
+    }
+
+    @Published var selectedWhisperModelID: String {
+        didSet { userDefaults.set(selectedWhisperModelID, forKey: Keys.selectedWhisperModelID) }
+    }
+
+    @Published var selectedCrisperModelID: String {
+        didSet { userDefaults.set(selectedCrisperModelID, forKey: Keys.selectedCrisperModelID) }
+    }
+
+    @Published var acceptedCrisperLicenseVersion: String? {
+        didSet { userDefaults.set(acceptedCrisperLicenseVersion, forKey: Keys.acceptedCrisperLicenseVersion) }
     }
 
     @Published var selectedLanguage: String {
@@ -59,7 +71,16 @@ final class AppSettings: ObservableObject {
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
 
-        selectedModelID = userDefaults.string(forKey: Keys.selectedModelID) ?? ReleaseConfig.defaultModelID
+        let legacyModelID = userDefaults.string(forKey: Keys.selectedModelID)
+        selectedWhisperModelID = userDefaults.string(forKey: Keys.selectedWhisperModelID)
+            ?? legacyModelID
+            ?? ReleaseConfig.defaultModelID
+        selectedCrisperModelID = userDefaults.string(forKey: Keys.selectedCrisperModelID)
+            ?? ReleaseConfig.defaultCrisperModelID
+        selectedTranscriptionBackend = userDefaults.string(forKey: Keys.selectedTranscriptionBackend)
+            .flatMap(SpeechBackend.init(rawValue:))
+            ?? .whisperCpp
+        acceptedCrisperLicenseVersion = userDefaults.string(forKey: Keys.acceptedCrisperLicenseVersion)
         selectedLanguage = userDefaults.string(forKey: Keys.selectedLanguage) ?? ReleaseConfig.defaultLanguage
         activeModelPath = userDefaults.string(forKey: Keys.activeModelPath)
         whisperCLIPath = WhisperCLIResolver.resolve(configuredPath: userDefaults.string(forKey: Keys.whisperCLIPath))
@@ -109,8 +130,31 @@ final class AppSettings: ObservableObject {
         transcriptHistory.removeAll()
     }
 
+    var selectedModelID: String {
+        get {
+            switch selectedTranscriptionBackend {
+            case .whisperCpp:
+                return selectedWhisperModelID
+            case .crisperWhisper:
+                return selectedCrisperModelID
+            }
+        }
+        set {
+            switch selectedTranscriptionBackend {
+            case .whisperCpp:
+                selectedWhisperModelID = newValue
+            case .crisperWhisper:
+                selectedCrisperModelID = newValue
+            }
+        }
+    }
+
     private enum Keys {
         static let selectedModelID = "settings.selectedModelID"
+        static let selectedTranscriptionBackend = "settings.selectedTranscriptionBackend"
+        static let selectedWhisperModelID = "settings.selectedWhisperModelID"
+        static let selectedCrisperModelID = "settings.selectedCrisperModelID"
+        static let acceptedCrisperLicenseVersion = "settings.acceptedCrisperLicenseVersion"
         static let selectedLanguage = "settings.selectedLanguage"
         static let hotkey = "settings.hotkey"
         static let activeModelPath = "settings.activeModelPath"

@@ -2,7 +2,7 @@
 
 Native macOS (Swift + SwiftUI) menu bar app for offline dictation:
 - Global hotkey toggles recording
-- Local transcription via `whisper.cpp`
+- Selectable local transcription via `whisper.cpp` or CrisperWhisper 2.0
 - Text insertion into the active app (AX first, clipboard fallback)
 
 ## Current v1 Prototype Status
@@ -16,6 +16,8 @@ Implemented:
 - 16kHz mono audio capture and normalization
 - Local model catalog + on-demand model download to `~/Library/Application Support/VoicePloeg/Models`
 - Offline transcription through local `whisper-cli`
+- Optional local CrisperWhisper 2.0 intended-mode transcription on Apple Silicon
+- App-managed Python/PyTorch runtime and local small/medium/turbo/large model downloads
 - Text output into focused app with accessibility-first strategy and clipboard fallback
 - Settings for model, hotkey, language, and `whisper-cli` path
 
@@ -47,29 +49,39 @@ Implemented:
    ```bash
    /Users/teun/Code/VoicePloeg/Scripts/bootstrap_whisper.sh
    ```
-2. Generate/update project (if you modify `project.yml`):
+2. Bootstrap the optional CrisperWhisper runtime installer:
+   ```bash
+   /Users/teun/Code/VoicePloeg/Scripts/bootstrap_crisper_runtime.sh
+   ```
+3. Generate/update project (if you modify `project.yml`):
    ```bash
    cd /Users/teun/Code/VoicePloeg
    xcodegen generate
    ```
-3. Open the project:
+4. Open the project:
    ```bash
    open /Users/teun/Code/VoicePloeg/VoicePloeg.xcodeproj
    ```
-4. In Xcode:
+5. In Xcode:
    - Select your signing team
    - Build and run `VoicePloeg`
-5. Grant permissions when prompted:
+6. Grant permissions when prompted:
    - Microphone
    - Accessibility
-6. Open settings and click `Download / Activate` for a model.
+7. Open settings and click `Download / Activate` for a model.
 
 ## Notes on Whisper Integration
 
-`WhisperCppTranscriber` currently executes local `whisper-cli` in-process via `Process`.
+`WhisperCppTranscriber` currently executes local `whisper-cli` as a child process.
 This keeps integration stable and maintainable for v1 while remaining fully offline.
 
 `WhisperBridge.mm` is included as a placeholder for future direct ObjC++ bridging to `whisper.cpp` APIs for lower overhead and potential streaming.
+
+## CrisperWhisper 2.0
+
+Select **CrisperWhisper 2.0** on the Transcription settings page, accept the non-commercial model license, install the runtime, choose a model, and download it. Internet access is required only for installation. Inference is local: VoicePloeg loads safetensors from Application Support, forces Hugging Face/Transformers offline mode, and never sends audio to an API.
+
+CrisperWhisper is enabled only on Apple Silicon. Its standard weights are licensed for non-commercial research use; commercial use requires a license from Nyra. The existing `whisper.cpp` backend remains available on all supported Macs.
 
 ## Distribution
 

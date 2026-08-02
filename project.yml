@@ -34,3 +34,17 @@ targets:
           PRODUCT_BUNDLE_IDENTIFIER: com.voiceploeg.app
     scheme:
       testTargets: []
+    postBuildScripts:
+      - name: Sign Crisper Runtime Installer
+        basedOnDependencyAnalysis: false
+        script: |
+          if [[ "${CODE_SIGNING_ALLOWED:-YES}" == "NO" || -z "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
+            exit 0
+          fi
+          for candidate in \
+            "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/uv" \
+            "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CrisperWorker/uv"; do
+            if [[ -x "$candidate" ]]; then
+              /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --options runtime "$candidate"
+            fi
+          done
