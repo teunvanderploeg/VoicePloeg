@@ -22,7 +22,22 @@ actor SpeechTranscriptionService: SpeechTranscribing {
         }
     }
 
+    func preloadModel(at modelURL: URL, backend: SpeechBackend) async throws {
+        switch backend {
+        case .whisperCpp:
+            await crisperTranscriber.unload()
+            try await whisperTranscriber.preloadModel(at: modelURL)
+        case .crisperWhisper:
+            try await crisperTranscriber.preloadModel(at: modelURL)
+        }
+    }
+
     func unloadCrisperModel() async {
         await crisperTranscriber.unload()
+    }
+
+    func releasePreloadedModels() async {
+        await crisperTranscriber.unload()
+        await whisperTranscriber.invalidatePreloadedModel()
     }
 }

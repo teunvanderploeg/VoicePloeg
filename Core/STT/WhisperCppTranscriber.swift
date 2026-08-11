@@ -37,6 +37,19 @@ final class WhisperCppTranscriber: SpeechTranscribing, @unchecked Sendable {
         self.timeoutSeconds = timeoutSeconds
     }
 
+    /// Reads the model ahead of time so macOS can satisfy whisper-cli's first
+    /// model load from the unified file cache instead of storage.
+    func preloadModel(at modelURL: URL) async throws {
+        guard FileManager.default.fileExists(atPath: modelURL.path) else {
+            throw WhisperTranscriberError.modelNotLoaded
+        }
+        try await worker.preloadModel(at: modelURL)
+    }
+
+    func invalidatePreloadedModel() async {
+        await worker.invalidatePreloadedModel()
+    }
+
     func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptResult {
         guard FileManager.default.fileExists(atPath: request.localModelURL.path) else {
             throw WhisperTranscriberError.modelNotLoaded
@@ -62,6 +75,34 @@ final class WhisperCppTranscriber: SpeechTranscribing, @unchecked Sendable {
 }
 
 private actor WhisperWorker {
+    private static let preloadChunkSize = 8 * 1_024 * 1_024
+    private var preloadedModel: PreloadedModel?
+
+    func preloadModel(at modelURL: URL) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: modelURL.path)
+        let candidate = PreloadedModel(
+            path: modelURL.path,
+            size: (attributes[.size] as? NSNumber)?.uint64Value,
+            modificationDate: attributes[.modificationDate] as? Date
+        )
+        guard preloadedModel != candidate else { return }
+
+        let handle = try FileHandle(forReadingFrom: modelURL)
+        defer { try? handle.close() }
+
+        while true {
+            try Task.checkCancellation()
+            guard let data = try handle.read(upToCount: Self.preloadChunkSize), !data.isEmpty else {
+                break
+            }
+        }
+        preloadedModel = candidate
+    }
+
+    func invalidatePreloadedModel() {
+        preloadedModel = nil
+    }
+
     func transcribe(
         samples: [Float],
         language: String?,
@@ -155,4 +196,10 @@ private actor WhisperWorker {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
+}
+
+private struct PreloadedModel: Equatable {
+    let path: String
+    let size: UInt64?
+    let modificationDate: Date?
 }

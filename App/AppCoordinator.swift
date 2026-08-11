@@ -33,6 +33,8 @@ final class AppCoordinator: ObservableObject {
     private var recordingTranscriptionSelection: RecordingTranscriptionSelection?
     private var languageFeedbackTask: Task<Void, Never>?
     private var inputRecoveryTask: Task<Void, Never>?
+    private var modelWarmupTask: Task<Void, Never>?
+    private var warmingSelection: ModelWarmupSelection?
     private var isWaitingForInputDevice = false
     private var memoryPressureSource: DispatchSourceMemoryPressure?
 
@@ -91,21 +93,16 @@ final class AppCoordinator: ObservableObject {
             .store(in: &cancellables)
 
         settings.$selectedTranscriptionBackend
+            .combineLatest(settings.$selectedWhisperModelID)
+            .combineLatest(settings.$selectedCrisperModelID)
             .dropFirst()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                guard self.state != .processing else { return }
-                Task { await self.transcriber.unloadCrisperModel() }
+            .removeDuplicates { lhs, rhs in
+                lhs.0.0 == rhs.0.0 && lhs.0.1 == rhs.0.1 && lhs.1 == rhs.1
             }
-            .store(in: &cancellables)
-
-        settings.$selectedCrisperModelID
-            .dropFirst()
-            .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
                 guard self.state != .processing else { return }
-                Task { await self.transcriber.unloadCrisperModel() }
+                self.scheduleSelectedModelWarmup(unloadCurrentCrisperModel: true)
             }
             .store(in: &cancellables)
 
@@ -120,6 +117,7 @@ final class AppCoordinator: ObservableObject {
         configureMemoryPressureHandling()
         Task { [weak self] in
             await self?.refreshCrisperRuntimeStatus()
+            self?.scheduleSelectedModelWarmup()
         }
     }
 
@@ -309,6 +307,7 @@ final class AppCoordinator: ObservableObject {
                 settings.activeModelPath = localURL.path
             }
             state = .idle
+            scheduleSelectedModelWarmup()
         } catch {
             state = .error(message: error.localizedDescription)
         }
@@ -342,6 +341,7 @@ final class AppCoordinator: ObservableObject {
             try await crisperRuntimeManager.install()
             await refreshCrisperRuntimeStatus()
             state = .idle
+            scheduleSelectedModelWarmup()
         } catch {
             crisperRuntimeStatus = .failed(message: error.localizedDescription)
             state = .error(message: error.localizedDescription)
@@ -401,6 +401,7 @@ final class AppCoordinator: ObservableObject {
             language: settings.selectedLanguage,
             whisperCLIPath: settings.whisperCLIPath
         )
+        scheduleSelectedModelWarmup()
         captureOutputTargetApp()
 
         let micGranted = await permissionController.requestMicrophoneIfNeeded()
@@ -582,12 +583,55 @@ final class AppCoordinator: ObservableObject {
             eventMask: [.warning, .critical],
             queue: .global(qos: .utility)
         )
-        source.setEventHandler { [weak self] in
+        source.setEventHandler(handler: Self.makeMemoryPressureHandler { [weak self] in
             guard let self else { return }
-            Task { await self.transcriber.unloadCrisperModel() }
-        }
+            self.modelWarmupTask?.cancel()
+            self.modelWarmupTask = nil
+            self.warmingSelection = nil
+            await self.transcriber.releasePreloadedModels()
+        })
         source.resume()
         memoryPressureSource = source
+    }
+
+    nonisolated static func makeMemoryPressureHandler(
+        operation: @escaping @MainActor @Sendable () async -> Void
+    ) -> @Sendable () -> Void {
+        {
+            Task { @MainActor in
+                await operation()
+            }
+        }
+    }
+
+    private func scheduleSelectedModelWarmup(unloadCurrentCrisperModel: Bool = false) {
+        guard state != .processing,
+              let model = selectedModel(),
+              modelManager.isDownloaded(model),
+              let modelURL = try? modelManager.localURL(for: model) else {
+            return
+        }
+        if model.backend == .crisperWhisper {
+            guard case .ready = crisperRuntimeStatus else { return }
+        }
+
+        let selection = ModelWarmupSelection(backend: model.backend, modelPath: modelURL.path)
+        if warmingSelection == selection, modelWarmupTask != nil { return }
+
+        modelWarmupTask?.cancel()
+        warmingSelection = selection
+        let transcriber = self.transcriber
+        modelWarmupTask = Task { [weak self] in
+            if unloadCurrentCrisperModel {
+                await transcriber.unloadCrisperModel()
+            }
+            try? await transcriber.preloadModel(at: modelURL, backend: model.backend)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self?.warmingSelection == selection else { return }
+                self?.modelWarmupTask = nil
+            }
+        }
     }
 }
 
@@ -595,4 +639,9 @@ private struct RecordingTranscriptionSelection {
     let model: SpeechModelDescriptor
     let language: String
     let whisperCLIPath: String
+}
+
+private struct ModelWarmupSelection: Equatable {
+    let backend: SpeechBackend
+    let modelPath: String
 }

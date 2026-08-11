@@ -31,11 +31,22 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
     private let timeoutSeconds: TimeInterval
     private var client: CrisperWorkerClient?
     private var loadedModelPath: String?
-    private var idleTask: Task<Void, Never>?
+    private var loadingModelPath: String?
+    private var loadingGeneration: UUID?
+    private var loadingClientTask: Task<CrisperWorkerClient, Error>?
 
     init(runtimeManager: CrisperRuntimeManager, timeoutSeconds: TimeInterval = 180) {
         self.runtimeManager = runtimeManager
         self.timeoutSeconds = timeoutSeconds
+    }
+
+    func preloadModel(at modelURL: URL) async throws {
+        guard FileManager.default.fileExists(
+            atPath: modelURL.appendingPathComponent("model.safetensors").path
+        ) else {
+            throw CrisperTranscriberError.modelMissing
+        }
+        _ = try await prepareClient(modelURL: modelURL)
     }
 
     func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptResult {
@@ -51,9 +62,7 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
             return TranscriptResult(text: "", segments: [], duration: 0, processingTime: 0)
         }
 
-        idleTask?.cancel()
         let activeClient = try await prepareClient(modelURL: request.localModelURL)
-        defer { scheduleIdleUnload() }
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoicePloeg-Crisper-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
@@ -92,8 +101,10 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
     }
 
     func unload() async {
-        idleTask?.cancel()
-        idleTask = nil
+        loadingClientTask?.cancel()
+        loadingClientTask = nil
+        loadingModelPath = nil
+        loadingGeneration = nil
         if let client {
             try? await client.shutdown()
         }
@@ -105,43 +116,80 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
         if let client, loadedModelPath == modelURL.path, await client.isRunning() {
             return client
         }
+        if loadingModelPath == modelURL.path,
+           let loadingGeneration,
+           let loadingClientTask {
+            return try await finishLoading(
+                loadingClientTask,
+                modelPath: modelURL.path,
+                generation: loadingGeneration
+            )
+        }
         await unload()
         guard let workerURL = CrisperResources.workerURL() else {
             throw CrisperTranscriberError.workerResourceMissing
         }
         let pythonURL = try await runtimeManager.pythonExecutableURL()
         let environment = await runtimeManager.offlineEnvironment()
-        let newClient = try CrisperWorkerClient(
-            pythonURL: pythonURL,
-            workerURL: workerURL,
-            environment: environment
-        )
-        do {
-            _ = try await newClient.request(
-                CrisperWorkerRequest(
-                    id: UUID(),
-                    command: "loadModel",
-                    path: modelURL.path,
-                    device: "mps",
-                    computeType: "float16"
-                ),
-                timeout: timeoutSeconds
+        let modelPath = modelURL.path
+        let timeoutSeconds = self.timeoutSeconds
+        let generation = UUID()
+        let task = Task {
+            let newClient = try CrisperWorkerClient(
+                pythonURL: pythonURL,
+                workerURL: workerURL,
+                environment: environment
             )
-        } catch {
-            try? await newClient.shutdown()
-            throw error
+            do {
+                _ = try await newClient.request(
+                    CrisperWorkerRequest(
+                        id: UUID(),
+                        command: "loadModel",
+                        path: modelPath,
+                        device: "mps",
+                        computeType: "float16"
+                    ),
+                    timeout: timeoutSeconds
+                )
+                return newClient
+            } catch {
+                try? await newClient.shutdown()
+                throw error
+            }
         }
-        client = newClient
-        loadedModelPath = modelURL.path
-        return newClient
+        loadingModelPath = modelPath
+        loadingGeneration = generation
+        loadingClientTask = task
+        return try await finishLoading(task, modelPath: modelPath, generation: generation)
     }
 
-    private func scheduleIdleUnload() {
-        idleTask?.cancel()
-        idleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 600_000_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.unload()
+    private func finishLoading(
+        _ task: Task<CrisperWorkerClient, Error>,
+        modelPath: String,
+        generation: UUID
+    ) async throws -> CrisperWorkerClient {
+        do {
+            let loadedClient = try await task.value
+            if let client, loadedModelPath == modelPath, await client.isRunning() {
+                return client
+            }
+            guard loadingGeneration == generation else {
+                try? await loadedClient.shutdown()
+                throw CancellationError()
+            }
+            client = loadedClient
+            loadedModelPath = modelPath
+            loadingClientTask = nil
+            loadingModelPath = nil
+            loadingGeneration = nil
+            return loadedClient
+        } catch {
+            if loadingGeneration == generation {
+                loadingClientTask = nil
+                loadingModelPath = nil
+                loadingGeneration = nil
+            }
+            throw error
         }
     }
 }
