@@ -35,6 +35,12 @@ targets:
     scheme:
       testTargets: []
     postBuildScripts:
+      - name: Bundle Whisper Runtime
+        basedOnDependencyAnalysis: false
+        script: |
+          /usr/bin/python3 "$SRCROOT/Scripts/bundle_whisper.py" \
+            "$SRCROOT/Vendor/whisper.cpp/build" \
+            "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/Whisper.app"
       - name: Sign Crisper Runtime Installer
         basedOnDependencyAnalysis: false
         script: |

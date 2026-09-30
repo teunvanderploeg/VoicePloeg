@@ -78,7 +78,7 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
             capturedSamples
         }
 
-        return normalizeAndTrim(output)
+        return Self.normalize(output)
     }
 
     private func startEngineWithRetry() async throws {
@@ -196,30 +196,18 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
         }
     }
 
-    private func normalizeAndTrim(_ samples: [Float]) -> [Float] {
+    static func normalize(_ samples: [Float]) -> [Float] {
         guard !samples.isEmpty else { return [] }
 
         let mean = samples.reduce(0, +) / Float(samples.count)
         var centered = samples.map { $0 - mean }
 
-        if let maxAbs = centered.map({ abs($0) }).max(), maxAbs > 0 {
-            let gain = 0.95 / maxAbs
-            centered = centered.map { $0 * gain }
-        }
+        let maxAbs = centered.reduce(Float.zero) { max($0, abs($1)) }
+        guard maxAbs > 0 else { return [] }
+        let gain = 0.95 / maxAbs
+        centered = centered.map { $0 * gain }
 
-        let threshold: Float = 0.01
-        var start = 0
-        var end = centered.count - 1
-
-        while start < centered.count, abs(centered[start]) < threshold {
-            start += 1
-        }
-
-        while end > start, abs(centered[end]) < threshold {
-            end -= 1
-        }
-
-        guard start <= end else { return [] }
-        return Array(centered[start ... end])
+        // A later loud sample must not make quiet opening speech disappear.
+        return centered
     }
 }

@@ -1,13 +1,17 @@
 import Foundation
 
 enum WhisperCLIResolver {
-    static func resolve(configuredPath: String?) -> String? {
-        for candidate in candidates(configuredPath: configuredPath) {
+    static func resolve(configuredPath: String?, bundleURL: URL = Bundle.main.bundleURL) -> String? {
+        for candidate in candidates(configuredPath: configuredPath, bundleURL: bundleURL) {
             if FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
         return nil
+    }
+
+    static func bundledCLIURL(bundleURL: URL = Bundle.main.bundleURL) -> URL {
+        bundleURL.appendingPathComponent("Contents/Helpers/Whisper.app/Contents/MacOS/whisper-cli")
     }
 
     static func defaultHintPath() -> String {
@@ -19,7 +23,7 @@ enum WhisperCLIResolver {
         return "\(projectRoot)/Vendor/whisper.cpp/build/bin/whisper-cli"
     }
 
-    private static func candidates(configuredPath: String?) -> [String] {
+    private static func candidates(configuredPath: String?, bundleURL: URL) -> [String] {
         var values: [String] = []
 
         if let configuredPath {
@@ -36,6 +40,7 @@ enum WhisperCLIResolver {
             }
         }
 
+        values.append(bundledCLIURL(bundleURL: bundleURL).path)
         values.append(defaultHintPath())
         values.append("\(FileManager.default.currentDirectoryPath)/Vendor/whisper.cpp/build/bin/whisper-cli")
         values.append("/opt/homebrew/bin/whisper-cli")

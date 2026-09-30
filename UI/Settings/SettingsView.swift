@@ -397,6 +397,14 @@ struct SettingsView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
 
+                if let model = coordinator.selectedModel(),
+                   coordinator.settings.selectedLanguage != "auto",
+                   !model.supports(language: coordinator.settings.selectedLanguage) {
+                    Label(UserFacingMessage.modelLanguageMismatch, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 if coordinator.settings.selectedTranscriptionBackend == .crisperWhisper,
                    coordinator.settings.selectedLanguage == "auto" {
                     Label(UserFacingMessage.crisperRequiresExplicitLanguage, systemImage: "exclamationmark.triangle.fill")
@@ -467,16 +475,18 @@ struct SettingsView: View {
                         Button("Install Runtime") {
                             Task { await coordinator.installCrisperRuntime() }
                         }
-                        .disabled(coordinator.isInstallingCrisperRuntime)
+                        .disabled(!coordinator.canManageModels)
                     case .installing:
                         ProgressView("Installing Python, PyTorch, and CrisperWhisper…")
                     case .ready:
                         Button("Repair Runtime") {
                             Task { await coordinator.installCrisperRuntime() }
                         }
+                        .disabled(!coordinator.canManageModels)
                         Button("Remove Runtime", role: .destructive) {
                             Task { await coordinator.removeCrisperRuntime() }
                         }
+                        .disabled(!coordinator.canManageModels)
                     case .incompatibleHardware:
                         Text("Use whisper.cpp on this Mac.")
                             .font(.caption)

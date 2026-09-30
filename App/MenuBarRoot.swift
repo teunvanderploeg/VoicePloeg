@@ -20,12 +20,28 @@ struct MenuBarRoot: View {
             }) {
                 Text(buttonTitle)
             }
-            .keyboardShortcut(.space, modifiers: [.control, .option])
+            .disabled(coordinator.state == .starting || coordinator.state == .processing
+                || coordinator.isDownloadingModel || coordinator.isInstallingCrisperRuntime)
+
+            if case let .listening(startedAt) = coordinator.state {
+                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                    let elapsed = Int(context.date.timeIntervalSince(startedAt))
+                    Text(UserFacingMessage.recordingElapsed(elapsed))
+                        .monospacedDigit()
+                        .font(.caption)
+                }
+                Text(UserFacingMessage.recordingLimit)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if !coordinator.lastTranscript.isEmpty {
                 Text("Last transcript")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Button(UserFacingMessage.copyTranscript) {
+                    coordinator.copyTranscriptToClipboard(coordinator.lastTranscript)
+                }
                 Text(transcriptPreview)
                     .font(.caption)
                     .lineLimit(2)
@@ -58,6 +74,8 @@ struct MenuBarRoot: View {
         switch coordinator.state {
         case .idle, .error:
             return "Start Recording"
+        case .starting:
+            return UserFacingMessage.startingRecording
         case .listening:
             return "Stop & Transcribe"
         case .processing:
@@ -71,7 +89,7 @@ struct MenuBarRoot: View {
             return .gray
         case .listening:
             return .red
-        case .processing:
+        case .starting, .processing:
             return .orange
         case .error:
             return .yellow

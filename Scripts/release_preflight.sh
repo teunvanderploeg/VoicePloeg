@@ -50,6 +50,9 @@ cd "$ROOT_DIR"
 info "Step 1/5: Swift build"
 swift build
 
+info "Swift tests"
+swift test
+
 info "Step 2/5: Strict concurrency build"
 swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
 
@@ -86,8 +89,7 @@ fi
 info "Step 5/5: Release gating checks"
 
 if [[ ! -x "$WHISPER_CLI" ]]; then
-  warn "whisper-cli not found or not executable at: $WHISPER_CLI"
-  warn "Build it with: $ROOT_DIR/Scripts/bootstrap_whisper.sh"
+  fail "whisper-cli missing; run Scripts/bootstrap_whisper.sh"
 fi
 
 if [[ ! -f "$WHISPER_VERSION_FILE" ]]; then

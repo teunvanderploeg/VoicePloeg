@@ -229,29 +229,20 @@ actor CrisperRuntimeManager {
         environment: [String: String],
         timeout: TimeInterval
     ) async throws {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.environment = environment
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-
-        let startedAt = Date()
-        while process.isRunning {
-            try Task.checkCancellation()
-            if Date().timeIntervalSince(startedAt) > timeout {
-                process.terminate()
-                throw CrisperRuntimeError.installationFailed("Operation timed out")
-            }
-            try await Task.sleep(nanoseconds: 100_000_000)
+        let result: SubprocessResult
+        do {
+            result = try await SubprocessRunner.run(
+                executable: executable,
+                arguments: arguments,
+                environment: environment,
+                timeout: timeout
+            )
+        } catch SubprocessError.timedOut {
+            throw CrisperRuntimeError.installationFailed(UserFacingMessage.installationTimedOut)
         }
-        guard process.terminationStatus == 0 else {
-            let data = error.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: data, encoding: .utf8) ?? "Exit status \(process.terminationStatus)"
-            throw CrisperRuntimeError.installationFailed(message.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard result.status == 0 else {
+            let message = result.standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CrisperRuntimeError.installationFailed(message)
         }
     }
 }

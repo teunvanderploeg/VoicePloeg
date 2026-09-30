@@ -121,9 +121,6 @@ private actor WhisperWorker {
 
         try WavWriter.write(samples: samples, to: wavURL)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: cliPath)
-
         var arguments = [
             "-m", modelPath,
             "-f", wavURL.path,
@@ -136,30 +133,26 @@ private actor WhisperWorker {
             arguments.append(contentsOf: ["-l", language])
         }
 
-        process.arguments = arguments
-
-        let stdOut = Pipe()
-        let stdErr = Pipe()
-        process.standardOutput = stdOut
-        process.standardError = stdErr
-
         let startedAt = Date()
-        try process.run()
-        try await awaitProcessExit(process, timeoutSeconds: timeoutSeconds)
-
-        let stderrData = stdErr.fileHandleForReading.readDataToEndOfFile()
-        let stderrString = String(data: stderrData, encoding: .utf8) ?? "unknown error"
-
-        guard process.terminationStatus == 0 else {
-            throw WhisperTranscriberError.processFailed(stderrString)
+        let result: SubprocessResult
+        do {
+            result = try await SubprocessRunner.run(
+                executable: URL(fileURLWithPath: cliPath),
+                arguments: arguments,
+                timeout: timeoutSeconds
+            )
+        } catch SubprocessError.timedOut {
+            throw WhisperTranscriberError.processTimedOut(timeoutSeconds)
+        }
+        guard result.status == 0 else {
+            throw WhisperTranscriberError.processFailed(result.standardError)
         }
 
         let rawOutputText: String
         if FileManager.default.fileExists(atPath: outputTxtURL.path) {
             rawOutputText = try String(contentsOf: outputTxtURL)
         } else {
-            let stdoutData = stdOut.fileHandleForReading.readDataToEndOfFile()
-            rawOutputText = String(data: stdoutData, encoding: .utf8) ?? ""
+            rawOutputText = result.standardOutput
         }
         let outputText = WhisperTranscriptNormalizer.normalize(rawOutputText)
 
@@ -175,26 +168,6 @@ private actor WhisperWorker {
             duration: duration,
             processingTime: processing
         )
-    }
-
-    private func awaitProcessExit(
-        _ process: Process,
-        timeoutSeconds: TimeInterval
-    ) async throws {
-        let timeoutNanoseconds = UInt64(timeoutSeconds * 1_000_000_000)
-        let startedAt = DispatchTime.now().uptimeNanoseconds
-
-        while process.isRunning {
-            try Task.checkCancellation()
-
-            let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds - startedAt
-            if elapsedNanoseconds >= timeoutNanoseconds {
-                process.terminate()
-                throw WhisperTranscriberError.processTimedOut(timeoutSeconds)
-            }
-
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
     }
 }
 

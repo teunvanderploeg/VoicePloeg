@@ -1,6 +1,12 @@
 import Foundation
 
-actor SpeechTranscriptionService: SpeechTranscribing {
+protocol ManagedSpeechTranscribing: SpeechTranscribing {
+    func preloadModel(at modelURL: URL, backend: SpeechBackend) async throws
+    func unloadCrisperModel() async
+    func releasePreloadedModels() async
+}
+
+actor SpeechTranscriptionService: ManagedSpeechTranscribing {
     private let whisperTranscriber: WhisperCppTranscriber
     private let crisperTranscriber: CrisperWhisperTranscriber
 

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 enum SpeechBackend: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -43,6 +42,13 @@ struct SpeechModelDescriptor: Codable, Equatable, Identifiable, Sendable {
             return nil
         }
         return normalized.lowercased()
+    }
+
+    func supports(language: String) -> Bool {
+        if language == "auto" {
+            return backend == .whisperCpp
+        }
+        return languageSupport.contains(language)
     }
 
     var quantization: String { precision }
@@ -164,6 +170,9 @@ enum ModelManagerError: Error, LocalizedError {
     case checksumMismatch
     case unsupportedAcquisition
     case incompleteInstallation
+    case checksumMissing
+    case sizeMismatch
+    case invalidDownloadResponse
 
     var errorDescription: String? {
         switch self {
@@ -177,6 +186,12 @@ enum ModelManagerError: Error, LocalizedError {
             return "Downloaded model failed checksum verification"
         case .unsupportedAcquisition:
             return "The selected model requires a runtime that is not ready"
+        case .checksumMissing:
+            return UserFacingMessage.modelChecksumMissing
+        case .sizeMismatch:
+            return UserFacingMessage.modelSizeMismatch
+        case .invalidDownloadResponse:
+            return UserFacingMessage.modelDownloadFailed
         case .incompleteInstallation:
             return "The selected model installation is incomplete"
         }
@@ -189,11 +204,18 @@ final class ModelManager: ObservableObject {
 
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
+    private let directoryOverride: URL?
+    private let verifier = ModelFileVerifier()
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        modelsDirectoryURL: URL? = nil,
+        catalog: [SpeechModelDescriptor]? = nil
+    ) {
         self.fileManager = fileManager
-        if let loaded = try? loadCatalog() {
-            catalog = loaded
+        directoryOverride = modelsDirectoryURL
+        if let loaded = catalog ?? (try? loadCatalog()) {
+            self.catalog = loaded
         }
     }
 
@@ -228,6 +250,10 @@ final class ModelManager: ObservableObject {
     }
 
     func modelsDirectory() throws -> URL {
+        if let directoryOverride {
+            try fileManager.createDirectory(at: directoryOverride, withIntermediateDirectories: true)
+            return directoryOverride
+        }
         let appSupport = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -275,22 +301,28 @@ final class ModelManager: ObservableObject {
 
         let destinationURL = try localURL(for: item)
         if fileManager.fileExists(atPath: destinationURL.path) {
-            if try verifyChecksumIfNeeded(item: item, at: destinationURL) {
+            do {
+                try await verifier.verify(item, at: destinationURL)
                 return destinationURL
+            } catch ModelManagerError.checksumMismatch {
+                try fileManager.removeItem(at: destinationURL)
+            } catch ModelManagerError.sizeMismatch {
+                try fileManager.removeItem(at: destinationURL)
             }
-            try? fileManager.removeItem(at: destinationURL)
         }
 
-        let (tempURL, _) = try await URLSession.shared.download(from: remoteURL)
+        let (tempURL, response) = try await URLSession.shared.download(from: remoteURL)
+        defer { try? fileManager.removeItem(at: tempURL) }
+        guard let response = response as? HTTPURLResponse, (200 ... 299).contains(response.statusCode) else {
+            throw ModelManagerError.invalidDownloadResponse
+        }
+        try await verifier.verify(item, at: tempURL)
+        try Task.checkCancellation()
+        // Publish only fully verified files. A failed download never looks installed.
         if fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.removeItem(at: destinationURL)
         }
         try fileManager.moveItem(at: tempURL, to: destinationURL)
-
-        guard try verifyChecksumIfNeeded(item: item, at: destinationURL) else {
-            try? fileManager.removeItem(at: destinationURL)
-            throw ModelManagerError.checksumMismatch
-        }
         return destinationURL
     }
 
@@ -298,13 +330,5 @@ final class ModelManager: ObservableObject {
         let url = try localURL(for: item)
         guard fileManager.fileExists(atPath: url.path) else { return }
         try fileManager.removeItem(at: url)
-    }
-
-    private func verifyChecksumIfNeeded(item: SpeechModelDescriptor, at fileURL: URL) throws -> Bool {
-        guard let expected = item.expectedSHA256 else { return true }
-        let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
-        let digest = SHA256.hash(data: data)
-        let actual = digest.map { String(format: "%02x", $0) }.joined()
-        return expected == actual
     }
 }

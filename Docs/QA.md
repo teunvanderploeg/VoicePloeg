@@ -42,4 +42,10 @@
 - Verify model remains loaded between transcriptions.
 - Measure end-to-end latency for 10s and 30s recordings on Apple Silicon.
 - Monitor memory while recording up to 120s cap.
+- Verify recording automatically stops and transcribes at 120s and the timer is visible.
+- Press the recording hotkey repeatedly while permission/startup is pending; only one recording should start.
+- Verify model download, removal, and runtime repair cannot overlap dictation.
+- Choose Dutch with an English-only model; recording should explain the incompatibility.
+- Install the release app without the project checkout or Homebrew and verify bundled Whisper works.
+- Verify a failed insertion leaves a transcript in History and available from Copy transcript.
 - Run `Scripts/benchmark_crisper_macos.py <local-model> <wav>` for cold/warm MPS timing and peak RSS.

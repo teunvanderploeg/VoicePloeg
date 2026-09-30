@@ -72,7 +72,13 @@ enum GlobalHotkeyError: Error, LocalizedError {
 /// handler is called in a chain. This works, but it becomes fragile when handlers are
 /// removed and re-added independently. The safe pattern is one handler that dispatches
 /// by `EventHotKeyID.id`.
-final class GlobalHotkeyService {
+protocol GlobalHotkeyManaging: AnyObject {
+    var onTrigger: (() -> Void)? { get set }
+    var onLanguageCycleTrigger: (() -> Void)? { get set }
+    func register(_ combination: HotkeyCombination) throws
+}
+
+final class GlobalHotkeyService: GlobalHotkeyManaging {
     private let signature = OSType(0x56504C47) // 'VPLG'
 
     // Slot IDs

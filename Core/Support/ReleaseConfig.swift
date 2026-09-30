@@ -11,6 +11,16 @@ enum ReleaseConfig {
 }
 
 enum UserFacingMessage {
+    static let startingRecording = "Starting recording…"
+    static let copyTranscript = "Copy transcript"
+    static let recordingLimit = "Recording stops automatically after 2 minutes."
+    static let modelLanguageMismatch = "The selected model does not support this language. Choose a multilingual model in Settings."
+    static let modelChecksumMissing = "The selected model has no verified checksum. Update the model catalog before downloading."
+    static let modelSizeMismatch = "The model file is incomplete or has an unexpected size. Download it again."
+    static let modelDownloadFailed = "The model server could not provide the selected file. Please try again."
+    static let installationTimedOut = "Operation timed out"
+    static let noInputAtStart = "No recording input is available. Connect a microphone and try again."
+
     static let selectedModelNotFound = "Selected model not found in catalog"
     static let microphonePermissionDenied = "Microphone permission denied"
     static let audioRouteNotReady = "Audio route is still switching (often Bluetooth/HFP). Please try again in a second."
@@ -22,6 +32,11 @@ enum UserFacingMessage {
     static let crisperModelMissing = "Download the selected local CrisperWhisper model in Settings before recording."
     static let crisperLicenseNotAccepted = "Accept the Nyra non-commercial model license before downloading CrisperWhisper weights."
     static let crisperOutOfMemory = "CrisperWhisper ran out of GPU memory. Choose a smaller model or switch to whisper.cpp."
+
+    static func recordingElapsed(_ seconds: Int) -> String {
+        let elapsed = max(0, seconds)
+        return "\(elapsed / 60):\(String(format: "%02d", elapsed % 60)) / 2:00"
+    }
 
     static func bluetoothInputBlocked(_ inputName: String) -> String {
         "Recording blocked because the selected input (\(inputName)) is Bluetooth/HFP. Disable the Bluetooth warning or choose a non-Bluetooth input."

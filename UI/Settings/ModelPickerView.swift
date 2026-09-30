@@ -22,7 +22,7 @@ struct ModelPickerView: View {
             Button("Download / Activate") {
                 Task { await coordinator.downloadSelectedModel() }
             }
-            .disabled(coordinator.isDownloadingModel || !canDownloadSelectedModel)
+            .disabled(!coordinator.canManageModels || !canDownloadSelectedModel)
 
             if let selected = coordinator.selectedModel() {
                 let isDownloaded = coordinator.modelManager.isDownloaded(selected)
@@ -34,6 +34,7 @@ struct ModelPickerView: View {
                         isConfirmingRemoval = true
                     }
                     .buttonStyle(.bordered)
+                    .disabled(!coordinator.canManageModels)
                 }
             }
         }

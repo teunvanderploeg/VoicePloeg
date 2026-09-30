@@ -25,6 +25,24 @@ final class ModelCatalogItemTests: XCTestCase {
         XCTAssertEqual(item.expectedSHA256, "aabbcc")
     }
 
+    @MainActor
+    func testEnglishModelsRejectDutchButAllowAuto() throws {
+        let model = try XCTUnwrap(ModelManager().model(id: "ggml-base.en-q5_1", backend: .whisperCpp))
+        XCTAssertTrue(model.supports(language: "en"))
+        XCTAssertTrue(model.supports(language: "auto"))
+        XCTAssertFalse(model.supports(language: "nl"))
+    }
+
+    @MainActor
+    func testMultilingualModelsAllowDutchAndCrisperRejectsAuto() throws {
+        let manager = ModelManager()
+        let whisper = try XCTUnwrap(manager.model(id: "ggml-base-q5_1", backend: .whisperCpp))
+        XCTAssertTrue(whisper.supports(language: "nl"))
+        let crisper = try XCTUnwrap(manager.models(for: .crisperWhisper).first)
+        XCTAssertTrue(crisper.supports(language: "nl"))
+        XCTAssertFalse(crisper.supports(language: "auto"))
+    }
+
     private func makeItem(sha256: String) -> ModelCatalogItem {
         ModelCatalogItem(
             id: "test",
