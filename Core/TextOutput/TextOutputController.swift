@@ -11,6 +11,20 @@ enum TextInsertionMethod: String {
 @MainActor
 protocol TextOutputController {
     func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod
+    func makeLiveSession(targetProcessID: pid_t, hotkey: HotkeyCombination) throws -> any LiveTextOutputSession
+}
+
+extension TextOutputController {
+    func makeLiveSession(targetProcessID: pid_t, hotkey: HotkeyCombination) throws -> any LiveTextOutputSession {
+        throw LiveDictationError.unavailable
+    }
+}
+
+@MainActor
+protocol LiveTextOutputSession: AnyObject {
+    func validate() throws
+    func insert(_ text: String) async throws
+    func close()
 }
 
 enum TextOutputError: Error, LocalizedError {
@@ -105,6 +119,10 @@ enum TextInsertionTransaction {
 }
 
 final class ActiveAppTextOutputController: TextOutputController {
+    func makeLiveSession(targetProcessID: pid_t, hotkey: HotkeyCombination) throws -> any LiveTextOutputSession {
+        try FocusedLiveTextOutputSession(controller: self, processID: targetProcessID, hotkey: hotkey)
+    }
+
     func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -159,7 +177,7 @@ final class ActiveAppTextOutputController: TextOutputController {
         }
     }
 
-    private func waitForShortcutRelease() async throws {
+    func waitForShortcutRelease() async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while !TextOutputTargetPolicy.areShortcutKeysReleased(
             CGEventSource.flagsState(.combinedSessionState)
@@ -171,7 +189,7 @@ final class ActiveAppTextOutputController: TextOutputController {
         }
     }
 
-    private func insertUsingAccessibility(_ text: String, targetProcessID: pid_t) throws -> Bool {
+    func insertUsingAccessibility(_ text: String, targetProcessID: pid_t) throws -> Bool {
         let focusedElement = try verifiedFocusedElement(targetProcessID: targetProcessID)
         var isSettable = DarwinBoolean(false)
         let settableStatus = AXUIElementIsAttributeSettable(
@@ -191,8 +209,9 @@ final class ActiveAppTextOutputController: TextOutputController {
         return selectedStatus == .success
     }
 
-    private func verifiedFocusedElement(targetProcessID: pid_t) throws -> AXUIElement {
+    func verifiedFocusedElement(targetProcessID: pid_t, messagingTimeout: Float? = nil) throws -> AXUIElement {
         let targetApplication = AXUIElementCreateApplication(targetProcessID)
+        if let messagingTimeout { AXUIElementSetMessagingTimeout(targetApplication, messagingTimeout) }
         var focusedObject: CFTypeRef?
         let focusedStatus = AXUIElementCopyAttributeValue(
             targetApplication,
@@ -245,7 +264,7 @@ final class ActiveAppTextOutputController: TextOutputController {
         )
     }
 
-    private static func postPaste() throws {
+    static func postPaste(eventSourceUserData: Int64 = 0) throws {
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
             throw TextOutputError.insertionFailed
         }
@@ -257,7 +276,12 @@ final class ActiveAppTextOutputController: TextOutputController {
             throw TextOutputError.insertionFailed
         }
         keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
+        // Restore physical modifiers after the synthetic shortcut. Leaving Command
+        // on key-up can keep combinedSessionState latched until the next physical
+        // input event, blocking subsequent phrases while the user is speaking.
+        keyUp.flags = CGEventSource.flagsState(.hidSystemState)
+        keyDown.setIntegerValueField(.eventSourceUserData, value: eventSourceUserData)
+        keyUp.setIntegerValueField(.eventSourceUserData, value: eventSourceUserData)
         // The transaction verifies the original app is frontmost immediately
         // before posting. Use normal session routing for the paste shortcut so
         // web-backed editors can handle it through their regular keyboard path.

@@ -5,6 +5,148 @@ import XCTest
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
+    func testRapidLanguageShortcutsWarmOnlyTheFinalSelection() async throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        try await waitUntil { await fixture.transcriber.warmupModels.count == 1 }
+        await fixture.transcriber.resetWarmupMeasurements()
+        for _ in 0 ..< 21 {
+            fixture.coordinator.cycleLanguage()
+            await Task.yield()
+        }
+        XCTAssertEqual(fixture.settings.selectedLanguage, "nl")
+        try await waitUntil { await fixture.transcriber.warmupModels.count == 1 }
+        let models = await fixture.transcriber.warmupModels
+        let releases = await fixture.transcriber.warmupReleaseCount
+        XCTAssertEqual(models, ["test-multilingual.bin"])
+        XCTAssertEqual(releases, 1)
+    }
+
+    func testNewLanguageWarmupWaitsForCancelledLoadCleanup() async throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        try await waitUntil { await fixture.transcriber.warmupModels.count == 1 }
+        await fixture.transcriber.resetWarmupMeasurements()
+        await fixture.transcriber.suspendNextWarmup()
+        fixture.coordinator.cycleLanguage()
+        try await waitUntil { await fixture.transcriber.activeWarmups == 1 }
+        fixture.coordinator.cycleLanguage()
+        try await waitUntil { await fixture.transcriber.warmupModels.count == 2 }
+        let maximum = await fixture.transcriber.maximumActiveWarmups
+        let models = await fixture.transcriber.warmupModels
+        XCTAssertEqual(maximum, 1)
+        XCTAssertEqual(models, ["test-multilingual.bin", "test-model.bin"])
+    }
+
+    func testPendingLanguageWarmupDoesNotUnloadModelsDuringRecording() async throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        try await waitUntil { await fixture.transcriber.warmupModels.count == 1 }
+        await fixture.transcriber.resetWarmupMeasurements()
+        fixture.coordinator.cycleLanguage()
+        await fixture.coordinator.toggleRecording()
+        try await Task.sleep(for: .milliseconds(350))
+        let releases = await fixture.transcriber.warmupReleaseCount
+        let models = await fixture.transcriber.warmupModels
+        XCTAssertEqual(releases, 0)
+        XCTAssertTrue(models.isEmpty)
+        await fixture.coordinator.toggleRecording()
+    }
+
+    private func waitUntil(_ condition: @MainActor () async -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !(await condition()), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let met = await condition()
+        XCTAssertTrue(met, "Timed out waiting for model warmup")
+    }
+
+    func testLiveModeFlushesFinalWordsAndSavesOneHistoryEntryWithoutFinalPaste() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.settings.liveDictationEnabled = true
+        await fixture.transcriber.setText("Final phrase.")
+        await fixture.coordinator.toggleRecording()
+        guard case .liveListening = fixture.coordinator.state else { return XCTFail("Expected live recording") }
+        await fixture.recorder.feedLiveSpeech()
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+        XCTAssertEqual(fixture.output.live.insertions, ["Final phrase."])
+        XCTAssertEqual(fixture.output.normalInsertions, 0)
+        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["Final phrase."])
+        XCTAssertTrue(fixture.output.live.closed)
+    }
+
+    func testLiveOutputIsPinnedBeforePermissionAndClosedWhenPermissionIsDenied() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.settings.liveDictationEnabled = true
+        fixture.permissions.granted = false
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.microphonePermissionDenied))
+        XCTAssertTrue(fixture.output.live.closed)
+        let starts = await fixture.recorder.startCount
+        XCTAssertEqual(starts, 0)
+    }
+
+    func testUnsupportedLiveFieldIsRejectedBeforeRecording() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.settings.liveDictationEnabled = true
+        fixture.output.liveSupported = false
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.liveUnverifiableField))
+        XCTAssertEqual(fixture.permissions.requestCount, 0)
+        let starts = await fixture.recorder.startCount
+        XCTAssertEqual(starts, 0)
+    }
+
+    func testLiveFocusFailureKeepsTranscriptInHistoryAndDoesNotUseNormalPaste() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.settings.liveDictationEnabled = true
+        await fixture.transcriber.setText("Recover this.")
+        await fixture.coordinator.toggleRecording()
+        fixture.output.live.focusValid = false
+        await fixture.recorder.feedLiveSpeech()
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["Recover this."])
+        XCTAssertTrue(fixture.output.live.insertions.isEmpty)
+        XCTAssertEqual(fixture.output.normalInsertions, 0)
+        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.liveTargetChanged))
+    }
+
+    func testLiveModeUsesRecordingLanguageEvenIfPreferenceChangesBeforeStop() async throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        fixture.settings.liveDictationEnabled = true
+        await fixture.coordinator.toggleRecording()
+        fixture.coordinator.cycleLanguage()
+        fixture.settings.liveDictationEnabled = false
+        await fixture.recorder.feedLiveSpeech()
+        await fixture.coordinator.toggleRecording()
+        let requests = await fixture.transcriber.requests
+        XCTAssertEqual(requests.map(\.language), ["en"])
+        XCTAssertEqual(requests.map(\.model.id), ["test-model"])
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+    }
+
+    func testLiveRecordingAutomaticallyStopsAtLimit() async throws {
+        let fixture = try Fixture(duration: 0.05)
+        defer { fixture.cleanup() }
+        fixture.settings.liveDictationEnabled = true
+        await fixture.coordinator.toggleRecording()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while fixture.coordinator.state.isDictationActive, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+        let stops = await fixture.recorder.stopCount
+        XCTAssertEqual(stops, 1)
+        XCTAssertTrue(fixture.output.live.closed)
+    }
+
     func testLanguageShortcutSelectsAssignedModelAndBackendImmediately() throws {
         let fixture = try Fixture(includeMultilingualModel: true)
         defer { fixture.cleanup() }
@@ -155,6 +297,7 @@ private final class Fixture {
     let permissions = TestPermissions()
     let recorder = TestRecording()
     let transcriber = TestTranscriber()
+    let output = TestOutput()
     let coordinator: AppCoordinator
 
     init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false) throws {
@@ -191,12 +334,13 @@ private final class Fixture {
             modelManager: ModelManager(modelsDirectoryURL: directory, catalog: catalog),
             permissionController: permissions,
             recordingController: recorder,
-            textOutputController: TestOutput(),
+            textOutputController: output,
             hotkeyService: TestHotkeys(),
             audioInputDeviceManager: TestDevices(),
             recordingFeedbackPlayer: TestFeedback(),
             transcriber: transcriber,
-            maxRecordingDurationSeconds: duration
+            maxRecordingDurationSeconds: duration,
+            outputTargetProvider: { 42 }
         )
     }
 
@@ -237,9 +381,12 @@ private final class TestPermissions: PermissionController {
     func openAccessibilitySettings() {}
 }
 
-private actor TestRecording: RecordingController {
+private actor TestRecording: LiveRecordingController {
     var startCount = 0
     var stopCount = 0
+    private var liveSamples: [Float] = []
+    func feedLiveSpeech() { liveSamples += (0 ..< 8_000).map { $0.isMultiple(of: 2) ? 0.1 : -0.1 } }
+    func drainLiveSamples() -> [Float] { defer { liveSamples = [] }; return liveSamples }
     func start() { startCount += 1 }
     func stop() -> [Float] { stopCount += 1; return [] }
 }
@@ -247,22 +394,66 @@ private actor TestRecording: RecordingController {
 private actor TestTranscriber: ManagedSpeechTranscribing {
     var requests: [TranscriptionRequest] = []
     private var text = ""
+    private var shouldSuspendWarmup = false
+    var warmupModels: [String] = []
+    var warmupReleaseCount = 0
+    var activeWarmups = 0
+    var maximumActiveWarmups = 0
+    func resetWarmupMeasurements() {
+        warmupModels = []
+        warmupReleaseCount = 0
+        maximumActiveWarmups = 0
+    }
+    func suspendNextWarmup() { shouldSuspendWarmup = true }
     func setText(_ text: String) { self.text = text }
     func transcribe(_ request: TranscriptionRequest) -> TranscriptResult {
         requests.append(request)
         return TranscriptResult(text: text, segments: [], duration: 0, processingTime: 0)
     }
-    func preloadModel(at modelURL: URL, backend: SpeechBackend) {}
+    func preloadModel(at modelURL: URL, backend: SpeechBackend) async throws {
+        warmupModels.append(modelURL.lastPathComponent)
+        activeWarmups += 1
+        maximumActiveWarmups = max(maximumActiveWarmups, activeWarmups)
+        defer { activeWarmups -= 1 }
+        if shouldSuspendWarmup {
+            shouldSuspendWarmup = false
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                // A model worker needs time to finish cleanup after cancellation.
+                await Task.detached { try? await Task.sleep(for: .milliseconds(400)) }.value
+                throw error
+            }
+        }
+    }
     func unloadBarkModel() {}
     func unloadCrisperModel() {}
-    func releasePreloadedModels() {}
+    func releasePreloadedModels() { warmupReleaseCount += 1 }
 }
 
 @MainActor
 private final class TestOutput: TextOutputController {
+    let live = CoordinatorLiveOutput()
+    var liveSupported = true
+    var normalInsertions = 0
+    func makeLiveSession(targetProcessID: pid_t, hotkey: HotkeyCombination) throws -> any LiveTextOutputSession {
+        guard liveSupported else { throw LiveDictationError.unverifiableField }
+        return live
+    }
     func insert(_ text: String, targetProcessID: pid_t) throws -> TextInsertionMethod {
+        normalInsertions += 1
         throw TextOutputError.insertionFailed
     }
+}
+
+@MainActor
+private final class CoordinatorLiveOutput: LiveTextOutputSession {
+    var insertions: [String] = []
+    var focusValid = true
+    var closed = false
+    func validate() throws { if !focusValid { throw LiveDictationError.targetChanged } }
+    func insert(_ text: String) throws { try validate(); insertions.append(text) }
+    func close() { closed = true }
 }
 
 private final class TestHotkeys: GlobalHotkeyManaging {

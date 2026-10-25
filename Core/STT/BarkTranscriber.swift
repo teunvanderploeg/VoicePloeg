@@ -76,15 +76,19 @@ actor BarkTranscriber: SpeechTranscribing {
     }
 
     func unload() async {
-        loadingClientTask?.cancel()
+        let loadingTask = loadingClientTask
+        let previousClient = client
+        // Detach state before awaiting so an older unload cannot clear a newer model.
         loadingClientTask = nil
         loadingModelPath = nil
         loadingGeneration = nil
-        if let client {
-            try? await client.shutdown()
-        }
         client = nil
         loadedModelPath = nil
+        loadingTask?.cancel()
+        if let loadingTask, case let .success(loadingClient) = await loadingTask.result {
+            try? await loadingClient.shutdown()
+        }
+        if let previousClient { try? await previousClient.shutdown() }
     }
 
     private func prepareClient(modelURL: URL) async throws -> LocalSpeechWorkerClient {
@@ -142,8 +146,16 @@ actor BarkTranscriber: SpeechTranscribing {
         generation: UUID
     ) async throws -> LocalSpeechWorkerClient {
         do {
-            let loadedClient = try await task.value
-            if let client, loadedModelPath == modelPath, await client.isRunning() {
+            let loadedClient = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            guard !Task.isCancelled else {
+                try? await loadedClient.shutdown()
+                throw CancellationError()
+            }
+            if let client, client === loadedClient, loadedModelPath == modelPath, await client.isRunning() {
                 return client
             }
             guard loadingGeneration == generation else {

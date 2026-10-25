@@ -224,6 +224,7 @@ struct SettingsView: View {
 
     private var transcriptionPage: some View {
         VStack(alignment: .leading, spacing: 12) {
+            liveDictationCard
             languageCard
             languageModelsCard
             speechModelCard
@@ -233,6 +234,26 @@ struct SettingsView: View {
                 barkRuntimeCard
             } else {
                 crisperRuntimeCard
+            }
+        }
+    }
+
+    private var liveDictationCard: some View {
+        SettingsCard(title: UserFacingMessage.liveDictation, systemImage: "waveform") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(UserFacingMessage.liveDictation, isOn: $coordinator.settings.liveDictationEnabled)
+                    .toggleStyle(.switch)
+                    .disabled(coordinator.state.isDictationActive)
+                Text(UserFacingMessage.liveDictationDescription)
+                    .font(.callout)
+                Text(UserFacingMessage.liveDictationHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if coordinator.settings.liveDictationEnabled {
+                    Text(UserFacingMessage.liveModelHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -434,7 +455,8 @@ struct SettingsView: View {
         SettingsCard(title: "Hotkey", systemImage: "keyboard.fill") {
             VStack(alignment: .leading, spacing: 10) {
                 HotkeyRecorderView(hotkey: $coordinator.settings.hotkey)
-                Text("Press once to start recording, press again to stop and transcribe.")
+                Text(coordinator.settings.liveDictationEnabled ? UserFacingMessage.liveHotkeyHint
+                    : "Press once to start recording, press again to stop and transcribe.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

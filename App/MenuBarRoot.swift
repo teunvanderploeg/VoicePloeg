@@ -20,11 +20,11 @@ struct MenuBarRoot: View {
             }) {
                 Text(buttonTitle)
             }
-            .disabled(coordinator.state == .starting || coordinator.state == .processing
+            .disabled(coordinator.state == .starting || coordinator.state == .processing || coordinator.state == .finishingLive
                 || coordinator.isDownloadingModel || coordinator.isInstallingCrisperRuntime
                 || coordinator.isInstallingBarkRuntime)
 
-            if case let .listening(startedAt) = coordinator.state {
+            if let startedAt = recordingStartedAt {
                 TimelineView(.periodic(from: startedAt, by: 1)) { context in
                     let elapsed = Int(context.date.timeIntervalSince(startedAt))
                     Text(UserFacingMessage.recordingElapsed(elapsed))
@@ -36,8 +36,20 @@ struct MenuBarRoot: View {
                     .foregroundStyle(.secondary)
             }
 
+            if case let .liveListening(_, .paused(message)) = coordinator.state {
+                Label(message, systemImage: "pause.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            if isLiveSession {
+                Button(UserFacingMessage.liveCancel) {
+                    Task { await coordinator.cancelLiveDictation() }
+                }
+            }
+
             if !coordinator.lastTranscript.isEmpty {
-                Text("Last transcript")
+                Text(isLiveSession ? UserFacingMessage.liveTranscript : "Last transcript")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button(UserFacingMessage.copyTranscript) {
@@ -65,6 +77,9 @@ struct MenuBarRoot: View {
 
             Divider()
 
+            Toggle(UserFacingMessage.liveDictation, isOn: $coordinator.settings.liveDictationEnabled)
+                .disabled(coordinator.state.isDictationActive)
+
             Button("Settings") {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
@@ -86,6 +101,10 @@ struct MenuBarRoot: View {
             return UserFacingMessage.startingRecording
         case .listening:
             return "Stop & Transcribe"
+        case .liveListening:
+            return UserFacingMessage.liveStop
+        case .finishingLive:
+            return UserFacingMessage.liveFinishing
         case .processing:
             return "Processing..."
         }
@@ -95,12 +114,28 @@ struct MenuBarRoot: View {
         switch state {
         case .idle:
             return .gray
-        case .listening:
+        case .liveListening(_, .paused):
+            return .orange
+        case .listening, .liveListening:
             return .red
-        case .starting, .processing:
+        case .starting, .processing, .finishingLive:
             return .orange
         case .error:
             return .yellow
+        }
+    }
+
+    private var isLiveSession: Bool {
+        switch coordinator.state {
+        case .liveListening, .finishingLive: return true
+        default: return false
+        }
+    }
+
+    private var recordingStartedAt: Date? {
+        switch coordinator.state {
+        case let .listening(startedAt), let .liveListening(startedAt, _): return startedAt
+        default: return nil
         }
     }
 
@@ -120,6 +155,7 @@ struct MenuBarRoot: View {
         guard trimmed.count > maxTranscriptPreviewCharacters else {
             return trimmed
         }
+        if isLiveSession { return String(trimmed.suffix(maxTranscriptPreviewCharacters)) }
         let endIndex = trimmed.index(trimmed.startIndex, offsetBy: maxTranscriptPreviewCharacters)
         return "\(trimmed[..<endIndex])..."
     }

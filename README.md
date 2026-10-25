@@ -21,6 +21,14 @@ Implemented:
 - Text output through Accessibility with clipboard fallback, and direct clipboard paste for Codex and ChatGPT
 - Settings for model, hotkey, language, and `whisper-cli` path
 
+## Live dictation
+
+Enable **Live dictation** in **Settings → Transcription**, or use the menu bar toggle. It is off by default. Place the cursor in a text field and start with the recording hotkey. A pause of about 0.76 seconds sends the completed phrase to your selected local model, then inserts it while recording continues. The same hotkey stops recording, finishes pending phrases, and saves one combined History entry. It does not paste the full transcript again.
+
+Live mode verifies the original app, text field, text, and cursor before each insertion. Typing, clicking, switching apps, or changing the field pauses insertion for the rest of that recording. You can continue speaking and recover the full transcript from History after stopping. **Cancel remaining dictation** discards unprocessed audio and leaves already inserted text alone. Secure fields, selected text, and editors without readable text/cursor information are rejected before recording starts. Normal dictation remains available in those editors.
+
+Audio stays local. Bark and Crisper reuse their existing workers; Whisper uses the existing CLI. Speed depends on model size, and clipboard-based editors add a delivery wait. Detection uses microphone energy before normalization, so steady background noise can delay phrase boundaries. Continuous speech is split at 15 seconds to bound inference windows; recording still stops at two minutes. Select an explicit language for consistent short-phrase recognition. Auto detects language separately for each phrase.
+
 ## Project Layout
 
 - `/Users/teun/Code/VoicePloeg/VoicePloeg.xcodeproj`

@@ -29,6 +29,8 @@ final class AppCoordinator: ObservableObject {
     private let hotkeyService: any GlobalHotkeyManaging
     private let audioInputDeviceManager: AudioInputDeviceManaging
     private let recordingFeedbackPlayer: RecordingFeedbackPlayer
+    private let outputTargetProvider: (@MainActor () -> pid_t?)?
+    private var liveSession: LiveDictationSession?
 
     private let maxRecordingDurationSeconds: TimeInterval
     private var recordingLimitTask: Task<Void, Never>?
@@ -55,7 +57,8 @@ final class AppCoordinator: ObservableObject {
         crisperRuntimeManager: CrisperRuntimeManager = CrisperRuntimeManager(),
         barkRuntimeManager: BarkRuntimeManager = BarkRuntimeManager(),
         transcriber: (any ManagedSpeechTranscribing)? = nil,
-        maxRecordingDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds
+        maxRecordingDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds,
+        outputTargetProvider: (@MainActor () -> pid_t?)? = nil
     ) {
         self.settings = settings
         self.modelManager = modelManager
@@ -66,6 +69,7 @@ final class AppCoordinator: ObservableObject {
         self.hotkeyService = hotkeyService
         self.audioInputDeviceManager = audioInputDeviceManager
         self.recordingFeedbackPlayer = recordingFeedbackPlayer
+        self.outputTargetProvider = outputTargetProvider
         self.barkRuntimeManager = barkRuntimeManager
         self.crisperRuntimeManager = crisperRuntimeManager
 
@@ -184,7 +188,9 @@ final class AppCoordinator: ObservableObject {
             await startRecording()
         case .listening:
             await stopRecordingAndTranscribe()
-        case .starting, .processing:
+        case .liveListening:
+            await stopLiveDictation()
+        case .starting, .processing, .finishingLive:
             return
         }
     }
@@ -203,7 +209,7 @@ final class AppCoordinator: ObservableObject {
             switch state {
             case .idle, .error:
                 state = .error(message: UserFacingMessage.noInputDeviceAvailable)
-            case .starting, .listening, .processing:
+            case .starting, .listening, .liveListening, .finishingLive, .processing:
                 break
             }
             return
@@ -225,7 +231,7 @@ final class AppCoordinator: ObservableObject {
             switch state {
             case .idle, .error:
                 state = .error(message: UserFacingMessage.inputDeviceRecoveryFailed)
-            case .starting, .listening, .processing:
+            case .starting, .listening, .liveListening, .finishingLive, .processing:
                 break
             }
         }
@@ -517,6 +523,25 @@ final class AppCoordinator: ObservableObject {
         captureOutputTargetApp()
         state = .starting
 
+        // Capture the field before any asynchronous permission/model work. A change
+        // during startup must not silently redirect the first live phrase.
+        var liveOutput: (any LiveTextOutputSession)?
+        if settings.liveDictationEnabled {
+            do {
+                guard recordingController is any LiveRecordingController else { throw LiveDictationError.unavailable }
+                guard let outputTargetProcessID else { throw LiveDictationError.unverifiableField }
+                liveOutput = try textOutputController.makeLiveSession(
+                    targetProcessID: outputTargetProcessID, hotkey: settings.hotkey
+                )
+            } catch {
+                recordingTranscriptionSelection = nil
+                outputTargetProcessID = nil
+                state = .error(message: error.localizedDescription)
+                return
+            }
+        }
+        defer { if liveSession == nil { liveOutput?.close() } }
+
         let micGranted = await permissionController.requestMicrophoneIfNeeded()
         permissionStatus = permissionController.currentStatus()
 
@@ -545,15 +570,59 @@ final class AppCoordinator: ObservableObject {
                 state = .error(message: UserFacingMessage.bluetoothInputBlocked(effectiveInput.name))
                 return
             }
+            let liveModelURL: URL?
+            if liveOutput != nil {
+                liveModelURL = try await resolveModelURL(selectedModel)
+                try liveOutput?.validate()
+            } else {
+                liveModelURL = nil
+            }
             try await recordingController.start()
             recordingFeedbackPlayer.playStartCue()
-            state = .listening(startedAt: Date())
+            if let liveOutput, let liveModelURL, let recorder = recordingController as? any LiveRecordingController,
+               let selection = recordingTranscriptionSelection {
+                beginLiveDictation(recorder: recorder, output: liveOutput, modelURL: liveModelURL, selection: selection)
+            } else {
+                state = .listening(startedAt: Date())
+            }
             scheduleRecordingLimit()
         } catch {
             recordingTranscriptionSelection = nil
             restorePreviousInputDeviceIfNeeded()
             state = .error(message: userFacingRecordingError(error))
         }
+    }
+
+    private func beginLiveDictation(
+        recorder: any LiveRecordingController,
+        output: any LiveTextOutputSession,
+        modelURL: URL,
+        selection: RecordingTranscriptionSelection
+    ) {
+        lastTranscript = ""
+        state = .liveListening(startedAt: Date(), status: .listening)
+        liveSession = LiveDictationSession(
+            recorder: recorder, transcriber: transcriber, output: output,
+            request: { samples in
+                TranscriptionRequest(samples: samples, model: selection.model, localModelURL: modelURL,
+                    language: selection.language, whisperCLIPath: selection.whisperCLIPath)
+            },
+            onUpdate: { [weak self] transcript, status in
+                guard let self else { return }
+                self.lastTranscript = transcript
+                if case let .liveListening(startedAt, _) = self.state {
+                    self.state = .liveListening(startedAt: startedAt, status: status)
+                }
+            },
+            onCaptureStopped: { [weak self] in
+                self?.recordingFeedbackPlayer.playStopCue()
+                self?.restorePreviousInputDeviceIfNeeded()
+            },
+            onTranscriptionFailure: { [weak self] in
+                Task { @MainActor [weak self] in await self?.stopLiveDictation() }
+            }
+        )
+        liveSession?.start()
     }
 
     private func scheduleRecordingLimit() {
@@ -565,10 +634,38 @@ final class AppCoordinator: ObservableObject {
             } catch {
                 return
             }
-            guard let self, case .listening = self.state else { return }
+            guard let self else { return }
             // Clear before stopping so the automatic stop cannot cancel itself.
             self.recordingLimitTask = nil
-            await self.stopRecordingAndTranscribe()
+            switch self.state {
+            case .listening: await self.stopRecordingAndTranscribe()
+            case .liveListening: await self.stopLiveDictation()
+            default: break
+            }
+        }
+    }
+
+    func cancelLiveDictation() async {
+        guard let liveSession else { return }
+        liveSession.cancel()
+        if case .liveListening = state { await stopLiveDictation() }
+    }
+
+    private func stopLiveDictation() async {
+        guard case .liveListening = state, let session = liveSession else { return }
+        state = .finishingLive
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
+        await session.finish()
+        lastTranscript = session.transcript
+        settings.addTranscriptToHistory(session.transcript, maxItems: ReleaseConfig.maxTranscriptHistoryItems)
+        liveSession = nil
+        recordingTranscriptionSelection = nil
+        outputTargetProcessID = nil
+        if let message = session.errorMessage {
+            state = .error(message: message)
+        } else {
+            state = .idle
         }
     }
 
@@ -698,6 +795,10 @@ final class AppCoordinator: ObservableObject {
 
     private func captureOutputTargetApp() {
         outputTargetProcessID = nil
+        if let outputTargetProvider {
+            outputTargetProcessID = outputTargetProvider()
+            return
+        }
         let selfPID = ProcessInfo.processInfo.processIdentifier
         guard
             let frontmost = NSWorkspace.shared.frontmostApplication,
@@ -715,9 +816,13 @@ final class AppCoordinator: ObservableObject {
         )
         source.setEventHandler(handler: Self.makeMemoryPressureHandler { [weak self] in
             guard let self else { return }
+            guard !self.state.isDictationActive else { return }
+            let previousWarmup = self.modelWarmupTask
             self.modelWarmupTask?.cancel()
             self.modelWarmupTask = nil
             self.warmingSelection = nil
+            await previousWarmup?.value
+            guard !self.state.isDictationActive else { return }
             await self.transcriber.releasePreloadedModels()
         })
         source.resume()
@@ -755,23 +860,29 @@ final class AppCoordinator: ObservableObject {
             model.map { ModelWarmupSelection(backend: $0.backend, modelPath: url.path) }
         }
         if !releaseCurrentModels, warmingSelection == selection, modelWarmupTask != nil { return }
-        modelWarmupTask?.cancel()
+        let previousWarmup = modelWarmupTask
+        previousWarmup?.cancel()
         warmingSelection = selection
         let transcriber = self.transcriber
         modelWarmupTask = Task { [weak self] in
+            if releaseCurrentModels {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            }
+            await previousWarmup?.value
+            guard !Task.isCancelled, let self, !self.state.isDictationActive else { return }
             if releaseCurrentModels { await transcriber.releasePreloadedModels() }
             guard !Task.isCancelled, runtimeReady, let model, let modelURL else { return }
             try? await transcriber.preloadModel(at: modelURL, backend: model.backend)
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard self?.warmingSelection == selection else { return }
-                self?.modelWarmupTask = nil
+                guard self.warmingSelection == selection else { return }
+                self.modelWarmupTask = nil
             }
         }
     }
 }
 
-private struct RecordingTranscriptionSelection {
+private struct RecordingTranscriptionSelection: Sendable {
     let model: SpeechModelDescriptor
     let language: String
     let whisperCLIPath: String
