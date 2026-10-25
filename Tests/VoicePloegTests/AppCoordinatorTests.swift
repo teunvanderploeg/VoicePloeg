@@ -5,6 +5,45 @@ import XCTest
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
+    func testLanguageShortcutSelectsAssignedModelAndBackendImmediately() throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        fixture.settings.englishDictationModelID = ReleaseConfig.defaultBarkModelID
+        // The download browser can remain on Bark while Dutch uses a different backend.
+        fixture.settings.selectedTranscriptionBackend = .bark
+        XCTAssertEqual(fixture.coordinator.selectedModel()?.backend, .bark)
+        fixture.coordinator.cycleLanguage()
+        XCTAssertEqual(fixture.settings.selectedLanguage, "nl")
+        XCTAssertEqual(fixture.coordinator.selectedModel()?.id, "test-multilingual")
+        XCTAssertEqual(fixture.coordinator.selectedModel()?.backend, .whisperCpp)
+        XCTAssertTrue(fixture.coordinator.canUseSelectedBackend())
+        fixture.coordinator.cycleLanguage()
+        XCTAssertEqual(fixture.coordinator.selectedModel()?.backend, .bark)
+    }
+
+    func testLanguageChangeKeepsInFlightModelAndUsesNewModelForNextRecording() async throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        await fixture.coordinator.toggleRecording()
+        fixture.coordinator.cycleLanguage()
+        await fixture.coordinator.toggleRecording()
+        await fixture.coordinator.toggleRecording()
+        await fixture.coordinator.toggleRecording()
+        let requests = await fixture.transcriber.requests
+        XCTAssertEqual(requests.map(\.language), ["en", "nl"])
+        XCTAssertEqual(requests.map(\.model.id), ["test-model", "test-multilingual"])
+    }
+
+    func testOtherLanguagesAndUnassignedDutchUseDefaultModel() throws {
+        let fixture = try Fixture(includeMultilingualModel: true)
+        defer { fixture.cleanup() }
+        fixture.settings.dutchDictationModelID = nil
+        for language in ["nl", "de", "auto"] {
+            fixture.settings.selectedLanguage = language
+            XCTAssertEqual(fixture.coordinator.selectedModel()?.id, "test-multilingual")
+        }
+    }
+
     func testRapidTriggersCannotStartTwiceWhilePermissionIsPending() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
@@ -118,7 +157,7 @@ private final class Fixture {
     let transcriber = TestTranscriber()
     let coordinator: AppCoordinator
 
-    init(duration: TimeInterval = 120) throws {
+    init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = Data("test model".utf8)
@@ -134,9 +173,22 @@ private final class Fixture {
         settings = AppSettings(userDefaults: defaults)
         settings.selectedWhisperModelID = model.id
         settings.selectedLanguage = "en"
+        var catalog = [model]
+        if includeMultilingualModel {
+            let multilingual = SpeechModelDescriptor(
+                id: "test-multilingual", displayName: "Test multilingual", sizeBytes: Int64(data.count),
+                languageSupport: ["en", "nl", "de"], precision: "fp16", acquisition: model.acquisition
+            )
+            catalog.append(multilingual)
+            catalog.append(contentsOf: ModelManager().models(for: .bark))
+            try data.write(to: directory.appendingPathComponent("test-multilingual.bin"))
+            settings.defaultDictationModelID = multilingual.id
+            settings.englishDictationModelID = model.id
+            settings.dutchDictationModelID = multilingual.id
+        }
         coordinator = AppCoordinator(
             settings: settings,
-            modelManager: ModelManager(modelsDirectoryURL: directory, catalog: [model]),
+            modelManager: ModelManager(modelsDirectoryURL: directory, catalog: catalog),
             permissionController: permissions,
             recordingController: recorder,
             textOutputController: TestOutput(),
@@ -201,6 +253,7 @@ private actor TestTranscriber: ManagedSpeechTranscribing {
         return TranscriptResult(text: text, segments: [], duration: 0, processingTime: 0)
     }
     func preloadModel(at modelURL: URL, backend: SpeechBackend) {}
+    func unloadBarkModel() {}
     func unloadCrisperModel() {}
     func releasePreloadedModels() {}
 }

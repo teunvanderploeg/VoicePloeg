@@ -24,7 +24,7 @@ struct ModelPickerView: View {
             }
             .disabled(!coordinator.canManageModels || !canDownloadSelectedModel)
 
-            if let selected = coordinator.selectedModel() {
+            if let selected = coordinator.modelToManage() {
                 let isDownloaded = coordinator.modelManager.isDownloaded(selected)
                 Text(isDownloaded ? "Downloaded locally" : "Not downloaded")
                     .foregroundStyle(isDownloaded ? .green : .secondary)
@@ -64,6 +64,10 @@ struct ModelPickerView: View {
     }
 
     private var canDownloadSelectedModel: Bool {
+        if coordinator.settings.selectedTranscriptionBackend == .bark {
+            if case .ready = coordinator.barkRuntimeStatus { return true }
+            return false
+        }
         guard coordinator.settings.selectedTranscriptionBackend == .crisperWhisper else { return true }
         guard coordinator.settings.acceptedCrisperLicenseVersion == ReleaseConfig.crisperLicenseVersion else {
             return false

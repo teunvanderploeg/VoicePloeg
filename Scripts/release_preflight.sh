@@ -136,13 +136,39 @@ if [[ "$(uname -m)" == "arm64" ]]; then
 fi
 
 python3 -m unittest discover -s "$ROOT_DIR/Tests/CrisperWorkerTests" -v
+python3 -m unittest discover -s "$ROOT_DIR/Tests/BarkWorkerTests" -v
 
-python3 - "$MODEL_CATALOG" <<'PY'
+python3 - "$MODEL_CATALOG" "$ROOT_DIR/Resources/BarkWorker" <<'PY'
 import json
+from pathlib import Path
 import re
 import sys
 
+bark_resources = Path(sys.argv[2])
+for name in ["bark_worker.py", "bark_loader.py", "bark_mlx.py", "BARK_NOTICE", "BARK_PLUS_NOTICE", "BARK_PRO_NOTICE", "BARK_SOURCE.txt", "bark-model-files.json", "bark-requirements.lock"]:
+    if not (bark_resources / name).is_file():
+        raise SystemExit(f"missing Bark resource: {name}")
+lock = (bark_resources / "bark-requirements.lock").read_text()
+for package in ["mlx==0.32.2", "mlx-audio==0.5.3", "constriction==0.5.0"]:
+    if package not in lock or "--hash=sha256:" not in lock:
+        raise SystemExit(f"Bark dependency lock is incomplete: {package}")
 items = json.load(open(sys.argv[1], encoding="utf-8"))
+bark = [item for item in items if item.get("backend") == "bark"]
+variants = json.loads((bark_resources / "bark-model-files.json").read_text())
+expected_ids = {"underdog-bark-3", "underdog-bark-3-plus", "underdog-bark-3-pro"}
+if {item["id"] for item in bark} != expected_ids or set(variants) != expected_ids:
+    raise SystemExit("expected Standard, Plus, and Pro Bark models")
+for item in bark:
+    variant = variants[item["id"]]
+    if item.get("revision") != variant["revision"] or item.get("repositoryID") != variant["repository"]:
+        raise SystemExit(f"Bark catalog and pinned manifest differ: {item['id']}")
+    if not re.fullmatch(r"[0-9a-f]{40}", variant["revision"]):
+        raise SystemExit(f"unpinned Bark revision: {item['id']}")
+    if item.get("languageSupport") != ["en"] or item.get("licenseIdentifier") != "cc-by-4.0":
+        raise SystemExit(f"invalid Bark language or license metadata: {item['id']}")
+    for entry in variant["files"].values():
+        if not re.fullmatch(r"[0-9a-f]{64}", entry.get("sha256", "")) or entry.get("size", 0) <= 0:
+            raise SystemExit("invalid Bark model checksum metadata")
 crisper = [item for item in items if item.get("backend") == "crisperWhisper"]
 if len(crisper) != 4:
     raise SystemExit("expected four CrisperWhisper models")

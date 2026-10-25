@@ -29,11 +29,11 @@ enum CrisperTranscriberError: Error, LocalizedError {
 actor CrisperWhisperTranscriber: SpeechTranscribing {
     private let runtimeManager: CrisperRuntimeManager
     private let timeoutSeconds: TimeInterval
-    private var client: CrisperWorkerClient?
+    private var client: LocalSpeechWorkerClient?
     private var loadedModelPath: String?
     private var loadingModelPath: String?
     private var loadingGeneration: UUID?
-    private var loadingClientTask: Task<CrisperWorkerClient, Error>?
+    private var loadingClientTask: Task<LocalSpeechWorkerClient, Error>?
 
     init(runtimeManager: CrisperRuntimeManager, timeoutSeconds: TimeInterval = 180) {
         self.runtimeManager = runtimeManager
@@ -84,6 +84,8 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
             )
         } catch let CrisperWorkerProtocolError.workerError(code, _) where code == "mps_out_of_memory" {
             throw CrisperTranscriberError.outOfMemory
+        } catch let LocalSpeechWorkerError.timedOut(seconds) {
+            throw CrisperTranscriberError.processTimedOut(seconds)
         }
         guard let result = response.result,
               let text = result.text,
@@ -112,7 +114,7 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
         loadedModelPath = nil
     }
 
-    private func prepareClient(modelURL: URL) async throws -> CrisperWorkerClient {
+    private func prepareClient(modelURL: URL) async throws -> LocalSpeechWorkerClient {
         if let client, loadedModelPath == modelURL.path, await client.isRunning() {
             return client
         }
@@ -135,7 +137,7 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
         let timeoutSeconds = self.timeoutSeconds
         let generation = UUID()
         let task = Task {
-            let newClient = try CrisperWorkerClient(
+            let newClient = try LocalSpeechWorkerClient(
                 pythonURL: pythonURL,
                 workerURL: workerURL,
                 environment: environment
@@ -164,10 +166,10 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
     }
 
     private func finishLoading(
-        _ task: Task<CrisperWorkerClient, Error>,
+        _ task: Task<LocalSpeechWorkerClient, Error>,
         modelPath: String,
         generation: UUID
-    ) async throws -> CrisperWorkerClient {
+    ) async throws -> LocalSpeechWorkerClient {
         do {
             let loadedClient = try await task.value
             if let client, loadedModelPath == modelPath, await client.isRunning() {
@@ -191,82 +193,5 @@ actor CrisperWhisperTranscriber: SpeechTranscribing {
             }
             throw error
         }
-    }
-}
-
-private actor CrisperWorkerClient {
-    private let process: Process
-    private let input: FileHandle
-    private let output: FileHandle
-
-    init(pythonURL: URL, workerURL: URL, environment: [String: String]) throws {
-        let process = Process()
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        process.executableURL = pythonURL
-        process.arguments = [workerURL.path, "--serve"]
-        process.environment = environment
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.standardError
-        try process.run()
-        self.process = process
-        input = inputPipe.fileHandleForWriting
-        output = outputPipe.fileHandleForReading
-    }
-
-    func request(_ request: CrisperWorkerRequest, timeout: TimeInterval) async throws -> CrisperWorkerResponse {
-        guard process.isRunning else {
-            throw CrisperWorkerProtocolError.workerExited("process is not running")
-        }
-        try input.write(contentsOf: CrisperWorkerCodec.encode(request))
-
-        let output = self.output
-        let process = self.process
-        let line = try await withTaskCancellationHandler {
-            try await withThrowingTaskGroup(of: Data.self) { group in
-                group.addTask { try readLine(from: output) }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    if process.isRunning { process.terminate() }
-                    throw CrisperTranscriberError.processTimedOut(timeout)
-                }
-                guard let first = try await group.next() else {
-                    throw CrisperWorkerProtocolError.invalidResponse
-                }
-                group.cancelAll()
-                return first
-            }
-        } onCancel: {
-            if process.isRunning { process.terminate() }
-        }
-        return try CrisperWorkerCodec.decode(line, expectedID: request.id)
-    }
-
-    func shutdown() async throws {
-        if process.isRunning {
-            _ = try? await request(
-                CrisperWorkerRequest(id: UUID(), command: "shutdown"),
-                timeout: 5
-            )
-        }
-        if process.isRunning { process.terminate() }
-        try? input.close()
-        try? output.close()
-    }
-
-    func isRunning() -> Bool {
-        process.isRunning
-    }
-}
-
-private func readLine(from handle: FileHandle) throws -> Data {
-    var data = Data()
-    while true {
-        guard let byte = try handle.read(upToCount: 1), !byte.isEmpty else {
-            throw CrisperWorkerProtocolError.workerExited("stdout closed")
-        }
-        if byte[0] == 0x0A { return data }
-        data.append(byte)
     }
 }

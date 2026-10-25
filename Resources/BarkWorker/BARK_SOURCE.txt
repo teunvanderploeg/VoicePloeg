@@ -1,0 +1,16 @@
+bark_loader.py and bark_mlx.py are unchanged reference loaders from:
+https://huggingface.co/ConwayResearch/Underdog-Bark-3.0
+Revision: 85db2ad18ab41e534a222ee253c29191d77ed919
+See BARK_NOTICE for attribution and the CC BY 4.0 license link.
+VoicePloeg's bark_worker.py wraps these loaders for local offline inference.
+
+The Plus reference loaders are byte-identical to these bundled loaders at:
+https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Plus
+d4fab2f8b95681e5ad3cfb4e8c5f4e0c009b3deb
+
+VoicePloeg converts Pro's BF16 Transformers tensor layouts with the same name
+and layout mappings, retaining BF16 precision. The Pro conversion adapter is
+in bark_worker.py. Original Pro weights and the vocabulary are pinned to:
+https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Pro
+4b5c51e04aa8d16dda9ecdff71bc29f7360149e4
+See BARK_PLUS_NOTICE and BARK_PRO_NOTICE for the additional attribution.

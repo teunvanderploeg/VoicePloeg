@@ -224,10 +224,13 @@ struct SettingsView: View {
 
     private var transcriptionPage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            speechModelCard
             languageCard
+            languageModelsCard
+            speechModelCard
             if coordinator.settings.selectedTranscriptionBackend == .whisperCpp {
                 whisperCard
+            } else if coordinator.settings.selectedTranscriptionBackend == .bark {
+                barkRuntimeCard
             } else {
                 crisperRuntimeCard
             }
@@ -241,7 +244,7 @@ struct SettingsView: View {
     private var quickRuntimeCard: some View {
         SettingsCard(title: "Runtime", systemImage: "gauge.with.dots.needle.bottom.50percent") {
             VStack(alignment: .leading, spacing: 10) {
-                LabeledContent("Backend", value: coordinator.settings.selectedTranscriptionBackend.displayName)
+                LabeledContent("Backend", value: coordinator.selectedModel()?.backend.displayName ?? "Not selected")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 LabeledContent("Selected Model", value: coordinator.selectedModel()?.displayName ?? "Not selected")
@@ -370,8 +373,11 @@ struct SettingsView: View {
     }
 
     private var speechModelCard: some View {
-        SettingsCard(title: "Speech Model", systemImage: "cpu.fill") {
+        SettingsCard(title: UserFacingMessage.modelDownloadsTitle, systemImage: "cpu.fill") {
             VStack(alignment: .leading, spacing: 10) {
+                Text(UserFacingMessage.modelDownloadsDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 ModelPickerView(coordinator: coordinator)
 
                 if coordinator.isDownloadingModel {
@@ -381,21 +387,30 @@ struct SettingsView: View {
         }
     }
 
+    private var languageModelsCard: some View {
+        SettingsCard(title: UserFacingMessage.languageModelsTitle, systemImage: "globe") {
+            LanguageModelAssignmentsView(coordinator: coordinator)
+        }
+    }
+
     private var languageCard: some View {
         SettingsCard(title: "Language", systemImage: "globe") {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("Transcription Language", selection: $coordinator.settings.selectedLanguage) {
-                    if coordinator.settings.selectedTranscriptionBackend == .whisperCpp {
-                        Text("Auto").tag("auto")
-                    }
-                    Text("English").tag("en")
-                    Text("Dutch").tag("nl")
-                    Text("German").tag("de")
-                    Text("French").tag("fr")
-                    Text("Spanish").tag("es")
+                Picker(UserFacingMessage.transcriptionLanguage, selection: $coordinator.settings.selectedLanguage) {
+                    Text(UserFacingMessage.automaticLanguage).tag("auto")
+                    Text(UserFacingMessage.englishModel).tag("en")
+                    Text(UserFacingMessage.dutchModel).tag("nl")
+                    Text(UserFacingMessage.germanLanguage).tag("de")
+                    Text(UserFacingMessage.frenchLanguage).tag("fr")
+                    Text(UserFacingMessage.spanishLanguage).tag("es")
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+
+                if let model = coordinator.selectedModel() {
+                    LabeledContent(UserFacingMessage.activeModel, value: model.displayName)
+                        .font(.caption)
+                }
 
                 if let model = coordinator.selectedModel(),
                    coordinator.settings.selectedLanguage != "auto",
@@ -405,7 +420,7 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
 
-                if coordinator.settings.selectedTranscriptionBackend == .crisperWhisper,
+                if coordinator.selectedModel()?.backend == .crisperWhisper,
                    coordinator.settings.selectedLanguage == "auto" {
                     Label(UserFacingMessage.crisperRequiresExplicitLanguage, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -436,6 +451,47 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var barkRuntimeCard: some View {
+        SettingsCard(title: UserFacingMessage.barkRuntimeTitle, systemImage: "cpu") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(coordinator.barkRuntimeStatus.title)
+                Text(UserFacingMessage.barkRuntimeDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(UserFacingMessage.barkAttribution)
+                    .font(.caption)
+                Link(UserFacingMessage.barkModelCard,
+                     destination: barkModelCardURL)
+                switch coordinator.barkRuntimeStatus {
+                case .notInstalled, .failed:
+                    Button(UserFacingMessage.barkInstallRuntime) {
+                        Task { await coordinator.installBarkRuntime() }
+                    }
+                    .disabled(!coordinator.canManageModels)
+                case .installing:
+                    ProgressView(UserFacingMessage.barkInstallingRuntime)
+                case .ready:
+                    Button(UserFacingMessage.barkRemoveRuntime, role: .destructive) {
+                        Task { await coordinator.removeBarkRuntime() }
+                    }
+                    .disabled(!coordinator.canManageModels)
+                case .incompatibleHardware:
+                    Text(UserFacingMessage.barkIncompatibleHardware)
+                        .font(.caption)
+                }
+            }
+        }
+    }
+
+    private var barkModelCardURL: URL {
+        if let model = coordinator.modelToManage(), model.backend == .bark,
+           case let .huggingFaceSnapshot(repository, _) = model.acquisition,
+           let url = URL(string: "https://huggingface.co/\(repository)") {
+            return url
+        }
+        return URL(string: "https://huggingface.co/ConwayResearch/Underdog-Bark-3.0")!
     }
 
     private var crisperRuntimeCard: some View {

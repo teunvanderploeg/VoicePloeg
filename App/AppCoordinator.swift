@@ -9,6 +9,8 @@ final class AppCoordinator: ObservableObject {
     @Published var accessibilityDiagnostics: AccessibilityDiagnostics
     @Published var lastTranscript: String = ""
     @Published var isDownloadingModel = false
+    @Published var isInstallingBarkRuntime = false
+    @Published var barkRuntimeStatus: CrisperRuntimeStatus = .notInstalled
     @Published var isInstallingCrisperRuntime = false
     @Published var crisperRuntimeStatus: CrisperRuntimeStatus = .notInstalled
     @Published var availableInputDevices: [AudioInputDevice] = []
@@ -21,6 +23,7 @@ final class AppCoordinator: ObservableObject {
     private let permissionController: PermissionController
     private let recordingController: RecordingController
     private let transcriber: any ManagedSpeechTranscribing
+    private let barkRuntimeManager: BarkRuntimeManager
     private let crisperRuntimeManager: CrisperRuntimeManager
     private let textOutputController: TextOutputController
     private let hotkeyService: any GlobalHotkeyManaging
@@ -50,22 +53,26 @@ final class AppCoordinator: ObservableObject {
         audioInputDeviceManager: AudioInputDeviceManaging,
         recordingFeedbackPlayer: RecordingFeedbackPlayer,
         crisperRuntimeManager: CrisperRuntimeManager = CrisperRuntimeManager(),
+        barkRuntimeManager: BarkRuntimeManager = BarkRuntimeManager(),
         transcriber: (any ManagedSpeechTranscribing)? = nil,
         maxRecordingDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds
     ) {
         self.settings = settings
         self.modelManager = modelManager
+        settings.migrateModelAssignmentsIfNeeded(catalog: modelManager.catalog)
         self.permissionController = permissionController
         self.recordingController = recordingController
         self.textOutputController = textOutputController
         self.hotkeyService = hotkeyService
         self.audioInputDeviceManager = audioInputDeviceManager
         self.recordingFeedbackPlayer = recordingFeedbackPlayer
+        self.barkRuntimeManager = barkRuntimeManager
         self.crisperRuntimeManager = crisperRuntimeManager
 
         self.maxRecordingDurationSeconds = maxRecordingDurationSeconds
         self.transcriber = transcriber ?? SpeechTranscriptionService(
-            crisperTranscriber: CrisperWhisperTranscriber(runtimeManager: crisperRuntimeManager)
+            crisperTranscriber: CrisperWhisperTranscriber(runtimeManager: crisperRuntimeManager),
+            barkTranscriber: BarkTranscriber(runtimeManager: barkRuntimeManager)
         )
         permissionStatus = permissionController.currentStatus()
         accessibilityDiagnostics = permissionController.accessibilityDiagnostics()
@@ -97,17 +104,19 @@ final class AppCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
-        settings.$selectedTranscriptionBackend
-            .combineLatest(settings.$selectedWhisperModelID)
-            .combineLatest(settings.$selectedCrisperModelID)
+        settings.$selectedLanguage
+            .combineLatest(settings.$defaultDictationModelID, settings.$englishDictationModelID, settings.$dutchDictationModelID)
             .dropFirst()
             .removeDuplicates { lhs, rhs in
-                lhs.0.0 == rhs.0.0 && lhs.0.1 == rhs.0.1 && lhs.1 == rhs.1
+                lhs.0 == rhs.0 && lhs.1 == rhs.1 && lhs.2 == rhs.2 && lhs.3 == rhs.3
             }
             .sink { [weak self] _ in
                 guard let self else { return }
                 guard !self.state.isDictationActive else { return }
-                self.scheduleSelectedModelWarmup(unloadCurrentCrisperModel: true)
+                // Published values arrive before AppSettings updates its stored selection.
+                Task { @MainActor [weak self] in
+                    self?.scheduleSelectedModelWarmup(releaseCurrentModels: true)
+                }
             }
             .store(in: &cancellables)
 
@@ -122,6 +131,7 @@ final class AppCoordinator: ObservableObject {
         configureMemoryPressureHandling()
         Task { [weak self] in
             await self?.refreshCrisperRuntimeStatus()
+            await self?.refreshBarkRuntimeStatus()
             self?.scheduleSelectedModelWarmup()
         }
     }
@@ -289,12 +299,12 @@ final class AppCoordinator: ObservableObject {
     }
 
     var canManageModels: Bool {
-        !state.isDictationActive && !isDownloadingModel && !isInstallingCrisperRuntime
+        !state.isDictationActive && !isDownloadingModel && !isInstallingCrisperRuntime && !isInstallingBarkRuntime
     }
 
     func downloadSelectedModel() async {
         guard canManageModels else { return }
-        guard let item = selectedModel() else {
+        guard let item = modelToManage() else {
             state = .error(message: UserFacingMessage.selectedModelNotFound)
             return
         }
@@ -303,7 +313,13 @@ final class AppCoordinator: ObservableObject {
         defer { isDownloadingModel = false }
 
         do {
-            if item.backend == .crisperWhisper {
+            if item.backend == .bark {
+                guard case .ready = barkRuntimeStatus else { throw BarkError.runtimeMissing }
+                if !modelManager.isDownloaded(item) {
+                    let destination = try modelManager.localURL(for: item)
+                    try await barkRuntimeManager.installModel(item, destination: destination)
+                }
+            } else if item.backend == .crisperWhisper {
                 guard settings.acceptedCrisperLicenseVersion == ReleaseConfig.crisperLicenseVersion else {
                     throw CrisperRuntimeError.modelInstallationFailed(UserFacingMessage.crisperLicenseNotAccepted)
                 }
@@ -324,12 +340,13 @@ final class AppCoordinator: ObservableObject {
     }
 
     func removeSelectedModel() async {
-        guard canManageModels, let item = selectedModel() else { return }
+        guard canManageModels, let item = modelToManage() else { return }
         isDownloadingModel = true
         defer { isDownloadingModel = false }
-        if item.backend == .crisperWhisper {
-            await transcriber.unloadCrisperModel()
-        }
+        modelWarmupTask?.cancel()
+        modelWarmupTask = nil
+        warmingSelection = nil
+        await transcriber.releasePreloadedModels()
         do {
             try modelManager.removeModel(item)
             if item.backend == .whisperCpp {
@@ -378,14 +395,70 @@ final class AppCoordinator: ObservableObject {
         crisperRuntimeStatus = await crisperRuntimeManager.status()
     }
 
+    func installBarkRuntime() async {
+        guard canManageModels else { return }
+        isInstallingBarkRuntime = true
+        barkRuntimeStatus = .installing
+        defer { isInstallingBarkRuntime = false }
+        modelWarmupTask?.cancel()
+        modelWarmupTask = nil
+        warmingSelection = nil
+        await transcriber.unloadBarkModel()
+        do {
+            try await barkRuntimeManager.install()
+            await refreshBarkRuntimeStatus()
+            state = .idle
+            scheduleSelectedModelWarmup()
+        } catch {
+            barkRuntimeStatus = .failed(message: error.localizedDescription)
+            state = .error(message: error.localizedDescription)
+        }
+    }
+
+    func removeBarkRuntime() async {
+        guard canManageModels else { return }
+        isInstallingBarkRuntime = true
+        defer { isInstallingBarkRuntime = false }
+        modelWarmupTask?.cancel()
+        modelWarmupTask = nil
+        warmingSelection = nil
+        await transcriber.unloadBarkModel()
+        do {
+            try await barkRuntimeManager.remove()
+            await refreshBarkRuntimeStatus()
+        } catch {
+            barkRuntimeStatus = .failed(message: error.localizedDescription)
+        }
+    }
+
+    func refreshBarkRuntimeStatus() async {
+        barkRuntimeStatus = await barkRuntimeManager.status()
+    }
+
     func selectedModel() -> SpeechModelDescriptor? {
+        let id = settings.dictationModelID(for: settings.selectedLanguage)
+        return modelManager.catalog.first { $0.id == id }
+    }
+
+    func modelToManage() -> SpeechModelDescriptor? {
         modelManager.model(id: settings.selectedModelID, backend: settings.selectedTranscriptionBackend)
     }
 
+    func selectModelForManagement(id: String) {
+        guard let model = modelManager.catalog.first(where: { $0.id == id }) else { return }
+        settings.selectedTranscriptionBackend = model.backend
+        settings.selectedModelID = model.id
+    }
+
     func canUseSelectedBackend() -> Bool {
-        guard settings.selectedTranscriptionBackend == .crisperWhisper else { return true }
-        guard settings.selectedLanguage != "auto", case .ready = crisperRuntimeStatus else { return false }
         guard let model = selectedModel(), model.supports(language: settings.selectedLanguage) else { return false }
+        if model.backend == .bark {
+            guard settings.selectedLanguage == "en", case .ready = barkRuntimeStatus,
+                  CrisperRuntimeManager.isCompatibleHardware else { return false }
+            return modelManager.isDownloaded(model)
+        }
+        guard model.backend == .crisperWhisper else { return true }
+        guard settings.selectedLanguage != "auto", case .ready = crisperRuntimeStatus else { return false }
         return modelManager.isDownloaded(model)
     }
 
@@ -396,12 +469,28 @@ final class AppCoordinator: ObservableObject {
             return
         }
         guard selectedModel.supports(language: settings.selectedLanguage) else {
-            state = .error(message: settings.selectedLanguage == "auto"
-                ? UserFacingMessage.crisperRequiresExplicitLanguage
-                : UserFacingMessage.modelLanguageMismatch)
+            state = .error(message: selectedModel.backend == .bark
+                ? UserFacingMessage.barkEnglishOnly
+                : settings.selectedLanguage == "auto"
+                    ? UserFacingMessage.crisperRequiresExplicitLanguage
+                    : UserFacingMessage.modelLanguageMismatch)
             return
         }
-        if settings.selectedTranscriptionBackend == .crisperWhisper {
+        if selectedModel.backend == .bark {
+            guard CrisperRuntimeManager.isCompatibleHardware else {
+                state = .error(message: UserFacingMessage.barkIncompatibleHardware)
+                return
+            }
+            guard case .ready = barkRuntimeStatus else {
+                state = .error(message: UserFacingMessage.barkRuntimeMissing)
+                return
+            }
+            guard modelManager.isDownloaded(selectedModel) else {
+                state = .error(message: UserFacingMessage.barkModelMissing)
+                return
+            }
+        }
+        if selectedModel.backend == .crisperWhisper {
             guard CrisperRuntimeManager.isCompatibleHardware else {
                 state = .error(message: UserFacingMessage.crisperIncompatibleHardware)
                 return
@@ -530,6 +619,10 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func resolveModelURL(_ item: SpeechModelDescriptor) async throws -> URL {
+        if item.backend == .bark {
+            guard modelManager.isDownloaded(item) else { throw BarkError.modelMissing }
+            return try modelManager.localURL(for: item)
+        }
         if item.backend == .crisperWhisper {
             guard modelManager.isDownloaded(item) else { throw CrisperTranscriberError.modelMissing }
             return try modelManager.localURL(for: item)
@@ -641,27 +734,33 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func scheduleSelectedModelWarmup(unloadCurrentCrisperModel: Bool = false) {
-        guard !state.isDictationActive,
-              let model = selectedModel(),
-              modelManager.isDownloaded(model),
-              let modelURL = try? modelManager.localURL(for: model) else {
-            return
+    private func scheduleSelectedModelWarmup(releaseCurrentModels: Bool = false) {
+        guard !state.isDictationActive else { return }
+        if releaseCurrentModels {
+            modelWarmupTask?.cancel()
+            warmingSelection = nil
         }
-        if model.backend == .crisperWhisper {
-            guard case .ready = crisperRuntimeStatus else { return }
+        let model = selectedModel()
+        let modelURL = model.flatMap { modelManager.isDownloaded($0) ? try? modelManager.localURL(for: $0) : nil }
+        let runtimeReady: Bool
+        switch model?.backend {
+        case .bark:
+            if case .ready = barkRuntimeStatus { runtimeReady = true } else { runtimeReady = false }
+        case .crisperWhisper:
+            if case .ready = crisperRuntimeStatus { runtimeReady = true } else { runtimeReady = false }
+        default:
+            runtimeReady = true
         }
-
-        let selection = ModelWarmupSelection(backend: model.backend, modelPath: modelURL.path)
-        if warmingSelection == selection, modelWarmupTask != nil { return }
-
+        let selection = modelURL.flatMap { url in
+            model.map { ModelWarmupSelection(backend: $0.backend, modelPath: url.path) }
+        }
+        if !releaseCurrentModels, warmingSelection == selection, modelWarmupTask != nil { return }
         modelWarmupTask?.cancel()
         warmingSelection = selection
         let transcriber = self.transcriber
         modelWarmupTask = Task { [weak self] in
-            if unloadCurrentCrisperModel {
-                await transcriber.unloadCrisperModel()
-            }
+            if releaseCurrentModels { await transcriber.releasePreloadedModels() }
+            guard !Task.isCancelled, runtimeReady, let model, let modelURL else { return }
             try? await transcriber.preloadModel(at: modelURL, backend: model.backend)
             guard !Task.isCancelled else { return }
             await MainActor.run {

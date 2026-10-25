@@ -20,6 +20,7 @@ enum TextOutputError: Error, LocalizedError {
     case targetApplicationUnavailable
     case targetActivationFailed
     case targetFocusUnavailable
+    case shortcutKeysHeld
 
     var errorDescription: String? {
         switch self {
@@ -35,11 +36,17 @@ enum TextOutputError: Error, LocalizedError {
             return "The original target app could not be brought to the front. The transcript was saved in History."
         case .targetFocusUnavailable:
             return "The original target app no longer has a verified text focus. The transcript was saved in History."
+        case .shortcutKeysHeld:
+            return UserFacingMessage.releaseShortcutKeys
         }
     }
 }
 
 enum TextOutputTargetPolicy {
+    static func areShortcutKeysReleased(_ flags: CGEventFlags) -> Bool {
+        flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty
+    }
+
     static func isFrontmostTarget(
         targetProcessID: pid_t,
         frontmostProcessID: pid_t?
@@ -61,11 +68,6 @@ enum TextOutputTargetPolicy {
 }
 
 final class ActiveAppTextOutputController: TextOutputController {
-    private struct PasteboardSnapshot {
-        let items: [[NSPasteboard.PasteboardType: Data]]
-        let changeCount: Int
-    }
-
     func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -87,7 +89,8 @@ final class ActiveAppTextOutputController: TextOutputController {
             // focused text element even though they accept a regular paste.
         }
 
-        try insertUsingClipboardPaste(trimmed, targetProcessID: targetProcessID)
+        try await waitForShortcutRelease()
+        try await insertUsingClipboardPaste(trimmed, targetProcessID: targetProcessID)
         return .clipboardPaste
     }
 
@@ -96,7 +99,8 @@ final class ActiveAppTextOutputController: TextOutputController {
             throw TextOutputError.targetApplicationUnavailable
         }
 
-        if frontmostProcessID() != processID {
+        let needsActivation = frontmostProcessID() != processID
+        if needsActivation {
             _ = app.activate(options: [])
         }
 
@@ -107,6 +111,26 @@ final class ActiveAppTextOutputController: TextOutputController {
 
         guard frontmostProcessID() == processID else {
             throw TextOutputError.targetActivationFailed
+        }
+
+        if needsActivation {
+            // Frontmost status can change before the editor restores its first responder.
+            try await Task.sleep(for: .milliseconds(200))
+            guard frontmostProcessID() == processID else {
+                throw TextOutputError.targetActivationFailed
+            }
+        }
+    }
+
+    private func waitForShortcutRelease() async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !TextOutputTargetPolicy.areShortcutKeysReleased(
+            CGEventSource.flagsState(.combinedSessionState)
+        ) {
+            guard ContinuousClock.now < deadline else {
+                throw TextOutputError.shortcutKeysHeld
+            }
+            try await Task.sleep(for: .milliseconds(20))
         }
     }
 
@@ -168,34 +192,24 @@ final class ActiveAppTextOutputController: TextOutputController {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
-    private func insertUsingClipboardPaste(_ text: String, targetProcessID: pid_t) throws {
-        guard
-            TextOutputTargetPolicy.isFrontmostTarget(
-                targetProcessID: targetProcessID,
-                frontmostProcessID: frontmostProcessID()
-            )
-        else {
-            throw TextOutputError.targetActivationFailed
-        }
+    private func insertUsingClipboardPaste(_ text: String, targetProcessID: pid_t) async throws {
+        try await ClipboardPasteTransaction.paste(
+            text,
+            pasteboard: .general,
+            verifyTarget: {
+                guard TextOutputTargetPolicy.isFrontmostTarget(
+                    targetProcessID: targetProcessID,
+                    frontmostProcessID: self.frontmostProcessID()
+                ) else {
+                    throw TextOutputError.targetActivationFailed
+                }
+            },
+            postPaste: { try Self.postPaste(to: targetProcessID) }
+        )
+    }
 
-        let pasteboard = NSPasteboard.general
-        let snapshot = snapshotPasteboard(pasteboard)
-
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
-        guard
-            TextOutputTargetPolicy.isFrontmostTarget(
-                targetProcessID: targetProcessID,
-                frontmostProcessID: frontmostProcessID()
-            )
-        else {
-            restorePasteboard(pasteboard, from: snapshot)
-            throw TextOutputError.targetActivationFailed
-        }
-
-        guard let source = CGEventSource(stateID: .hidSystemState) else {
-            restorePasteboard(pasteboard, from: snapshot)
+    private static func postPaste(to targetProcessID: pid_t) throws {
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
             throw TextOutputError.insertionFailed
         }
 
@@ -203,24 +217,56 @@ final class ActiveAppTextOutputController: TextOutputController {
             let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
             let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
         else {
-            restorePasteboard(pasteboard, from: snapshot)
             throw TextOutputError.insertionFailed
         }
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
         keyDown.postToPid(targetProcessID)
         keyUp.postToPid(targetProcessID)
+    }
+}
 
-        if !snapshot.items.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                // Only restore if no one changed clipboard after our paste operation.
-                guard pasteboard.changeCount == snapshot.changeCount + 1 else { return }
-                self.restorePasteboard(pasteboard, from: snapshot)
-            }
-        }
+@MainActor
+enum ClipboardPasteTransaction {
+    private struct PasteboardSnapshot {
+        let items: [[NSPasteboard.PasteboardType: Data]]
     }
 
-    private func snapshotPasteboard(_ pasteboard: NSPasteboard) -> PasteboardSnapshot {
+    static func paste(
+        _ text: String,
+        pasteboard: NSPasteboard,
+        verifyTarget: () throws -> Void,
+        postPaste: () throws -> Void,
+        waitForPaste: () async -> Void = {
+            // Posting an event does not mean the receiving editor has read the clipboard.
+            // Keep it available longer for busy editors, without blocking the main thread.
+            // Once posted, cancellation must not shorten the clipboard's lifetime.
+            await Task {
+                try? await Task.sleep(for: .seconds(1))
+            }.value
+        }
+    ) async throws {
+        try Task.checkCancellation()
+        try verifyTarget()
+        let snapshot = snapshotPasteboard(pasteboard)
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            restorePasteboard(pasteboard, from: snapshot)
+            throw TextOutputError.insertionFailed
+        }
+        let transcriptChangeCount = pasteboard.changeCount
+        defer {
+            // Never overwrite something copied by the user while the paste was pending.
+            if pasteboard.changeCount == transcriptChangeCount {
+                restorePasteboard(pasteboard, from: snapshot)
+            }
+        }
+        try verifyTarget()
+        try postPaste()
+        await waitForPaste()
+    }
+
+    private static func snapshotPasteboard(_ pasteboard: NSPasteboard) -> PasteboardSnapshot {
         let items = pasteboard.pasteboardItems?.map { item in
             item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { partialResult, type in
                 if let data = item.data(forType: type) {
@@ -229,10 +275,10 @@ final class ActiveAppTextOutputController: TextOutputController {
             }
         } ?? []
 
-        return PasteboardSnapshot(items: items, changeCount: pasteboard.changeCount)
+        return PasteboardSnapshot(items: items)
     }
 
-    private func restorePasteboard(_ pasteboard: NSPasteboard, from snapshot: PasteboardSnapshot) {
+    private static func restorePasteboard(_ pasteboard: NSPasteboard, from snapshot: PasteboardSnapshot) {
         let items = snapshot.items.compactMap { rawItem -> NSPasteboardItem? in
             guard !rawItem.isEmpty else { return nil }
             let pasteboardItem = NSPasteboardItem()

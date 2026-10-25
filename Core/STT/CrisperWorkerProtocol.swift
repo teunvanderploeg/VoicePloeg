@@ -43,13 +43,13 @@ enum CrisperWorkerProtocolError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "CrisperWhisper returned an invalid response"
+            return UserFacingMessage.localWorkerInvalidResponse
         case .mismatchedResponseID:
-            return "CrisperWhisper returned a response for a different request"
+            return UserFacingMessage.localWorkerMismatchedResponse
         case let .workerError(_, message):
             return message
         case let .workerExited(message):
-            return "CrisperWhisper worker exited unexpectedly: \(message)"
+            return UserFacingMessage.localWorkerExited(message)
         }
     }
 }
@@ -69,7 +69,7 @@ enum CrisperWorkerCodec {
             throw CrisperWorkerProtocolError.mismatchedResponseID
         }
         if response.status == "error" {
-            let error = response.error ?? .init(code: "unknown", message: "Unknown CrisperWhisper error")
+            let error = response.error ?? .init(code: "unknown", message: UserFacingMessage.localWorkerUnknownError)
             throw CrisperWorkerProtocolError.workerError(code: error.code, message: error.message)
         }
         guard response.status == "ok" else {

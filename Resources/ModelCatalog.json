@@ -222,5 +222,38 @@
     "languageSupport": ["en", "nl", "de", "fr", "es"],
     "precision": "fp16",
     "licenseIdentifier": "nyra-health-non-commercial-research"
+  },
+  {
+    "id": "underdog-bark-3",
+    "backend": "bark",
+    "displayName": "Underdog Bark 3.0 (English, verbatim)",
+    "repositoryID": "ConwayResearch/Underdog-Bark-3.0",
+    "revision": "85db2ad18ab41e534a222ee253c29191d77ed919",
+    "sizeBytes": 164144707,
+    "languageSupport": ["en"],
+    "precision": "low-bit download / fp16 MLX",
+    "licenseIdentifier": "cc-by-4.0"
+  },
+  {
+    "id": "underdog-bark-3-plus",
+    "backend": "bark",
+    "displayName": "Underdog Bark 3.0 Plus (English, verbatim)",
+    "repositoryID": "ConwayResearch/Underdog-Bark-3.0-Plus",
+    "revision": "d4fab2f8b95681e5ad3cfb4e8c5f4e0c009b3deb",
+    "sizeBytes": 180270917,
+    "languageSupport": ["en"],
+    "precision": "low-bit download / fp16 MLX",
+    "licenseIdentifier": "cc-by-4.0"
+  },
+  {
+    "id": "underdog-bark-3-pro",
+    "backend": "bark",
+    "displayName": "Underdog Bark 3.0 Pro (English, verbatim)",
+    "repositoryID": "ConwayResearch/Underdog-Bark-3.0-Pro",
+    "revision": "4b5c51e04aa8d16dda9ecdff71bc29f7360149e4",
+    "sizeBytes": 1254434289,
+    "languageSupport": ["en"],
+    "precision": "bf16 MLX",
+    "licenseIdentifier": "cc-by-4.0"
   }
 ]

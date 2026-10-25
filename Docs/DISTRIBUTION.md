@@ -56,3 +56,17 @@ An explicitly configured CLI path or environment override still takes priority.
 The bootstrap builds Apple Silicon and Intel slices by default. For a local
 single-architecture build, set `WHISPER_ARCHITECTURES=arm64` or `x86_64`.
 App packaging checks that every bundled binary supports the app's architectures.
+
+## Local unsigned build installation
+
+Before installing an unsigned Xcode build in Applications, run:
+
+```bash
+Scripts/sign_local_app.sh /path/to/VoicePloeg.app
+```
+
+This applies an ad-hoc hardened-runtime signature with the app's microphone
+entitlement and verifies both the bundle signature and the embedded entitlement.
+Signing with `--options runtime` alone drops the entitlement and can make
+microphone access fail without a consent prompt. This script is for local builds;
+use Developer ID signing and notarization for distribution.

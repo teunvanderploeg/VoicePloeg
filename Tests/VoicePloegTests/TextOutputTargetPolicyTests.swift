@@ -2,6 +2,19 @@ import XCTest
 @testable import VoicePloeg
 
 final class TextOutputTargetPolicyTests: XCTestCase {
+    func testPasteWaitsForEveryShortcutModifierToBeReleased() {
+        XCTAssertFalse(TextOutputTargetPolicy.areShortcutKeysReleased(.maskCommand))
+        XCTAssertFalse(TextOutputTargetPolicy.areShortcutKeysReleased(.maskControl))
+        XCTAssertFalse(TextOutputTargetPolicy.areShortcutKeysReleased(.maskAlternate))
+        XCTAssertFalse(TextOutputTargetPolicy.areShortcutKeysReleased(.maskShift))
+        XCTAssertFalse(TextOutputTargetPolicy.areShortcutKeysReleased([.maskControl, .maskAlternate]))
+    }
+
+    func testCapsLockDoesNotBlockPaste() {
+        XCTAssertTrue(TextOutputTargetPolicy.areShortcutKeysReleased([]))
+        XCTAssertTrue(TextOutputTargetPolicy.areShortcutKeysReleased(.maskAlphaShift))
+    }
+
     func testAcceptsMatchingFrontmostTargetForVerifiedPaste() {
         XCTAssertTrue(
             TextOutputTargetPolicy.isFrontmostTarget(

@@ -2,7 +2,7 @@
 
 Native macOS (Swift + SwiftUI) menu bar app for offline dictation:
 - Global hotkey toggles recording
-- Selectable local transcription via `whisper.cpp` or CrisperWhisper 2.0
+- Selectable local transcription via `whisper.cpp`, CrisperWhisper 2.0, or Underdog Bark 3.0
 - Text insertion into the active app (AX first, clipboard fallback)
 
 ## Current v1 Prototype Status
@@ -82,6 +82,22 @@ This keeps integration stable and maintainable for v1 while remaining fully offl
 Select **CrisperWhisper 2.0** on the Transcription settings page, accept the non-commercial model license, install the runtime, choose a model, and download it. Internet access is required only for installation. Inference is local: VoicePloeg loads safetensors from Application Support, forces Hugging Face/Transformers offline mode, and never sends audio to an API.
 
 CrisperWhisper is enabled only on Apple Silicon. Its standard weights are licensed for non-commercial research use; commercial use requires a license from Nyra. The existing `whisper.cpp` backend remains available on all supported Macs.
+
+## Underdog Bark 3.0
+
+In **Transcription → Models by language**, select **Underdog Bark 3.0** for English. Install its local runtime and download the weights under **Model downloads**. Bark requires Apple Silicon and supports English only. Existing Whisper and CrisperWhisper models remain available for Dutch and other languages.
+
+The English picker offers **Bark 3.0**, **Bark 3.0 Plus**, and **Bark 3.0 Pro** independently. Standard and Plus use compressed downloads of approximately 163 MB and 180 MB, unpacked to FP16 MLX weights. Pro downloads approximately 1.25 GB of BF16 weights and retains BF16 when converting tensor layouts for the same MLX graph. Each variant has its own pinned revision, checksums, installation directory, and model notice. Selecting another variant does not change Dutch or Default.
+
+English, Dutch, and Default are saved independently. Changing the language in Settings or with the language shortcut automatically selects its assigned model and backend. English and Dutch can also be set to **Use default**. Other languages and Auto use Default; Auto requires a whisper.cpp model. The menu bar shows the model selected for the current language. A recording keeps the language and model it started with even if the selection changes before it finishes.
+
+Existing settings migrate once. For an existing Bark selection, Bark stays assigned to English, the previous multilingual Whisper choice becomes Default, and a previously selected CrisperWhisper model is retained for Dutch. Model download controls do not change these assignments.
+
+The app uses the pinned reference MLX loader with a separate, hash-locked Python environment. It verifies the model data against pinned sizes and SHA-256 checksums, unpacks weights during installation, and runs a persistent offline worker for dictation. Installation needs internet access. Audio stays on the Mac. Long recordings are split at quiet points into windows of at most 20 seconds to limit encoder memory.
+
+The Standard and Plus downloads expand to approximately 1.25 GB of weights each, plus runtime packages. Initial unpacking needs about 6 GB of memory. Bark preserves fillers and false starts. Its CC BY 4.0 attribution is in Settings and the `BARK_NOTICE`, `BARK_PLUS_NOTICE`, and `BARK_PRO_NOTICE` files under `Resources/BarkWorker`.
+
+See [the model assessment](Docs/BARK_ASSESSMENT.md) for local timing measurements, published results, and limits of the comparison. `Scripts/benchmark_bark_macos.py` runs a repeatable offline diagnostic with the Bark runtime's Python.
 
 ## Distribution
 

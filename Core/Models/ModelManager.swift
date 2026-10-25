@@ -3,6 +3,7 @@ import Foundation
 enum SpeechBackend: String, Codable, CaseIterable, Identifiable, Sendable {
     case whisperCpp
     case crisperWhisper
+    case bark
 
     var id: String { rawValue }
 
@@ -12,6 +13,8 @@ enum SpeechBackend: String, Codable, CaseIterable, Identifiable, Sendable {
             return "whisper.cpp"
         case .crisperWhisper:
             return "CrisperWhisper 2.0"
+        case .bark:
+            return UserFacingMessage.barkName
         }
     }
 }
@@ -276,7 +279,7 @@ final class ModelManager: ObservableObject {
             return try modelsDirectory().appendingPathComponent("\(item.id).bin")
         case let .huggingFaceSnapshot(_, revision):
             return try modelsDirectory()
-                .appendingPathComponent("CrisperWhisper", isDirectory: true)
+                .appendingPathComponent(item.backend == .bark ? "Bark" : "CrisperWhisper", isDirectory: true)
                 .appendingPathComponent(item.id, isDirectory: true)
                 .appendingPathComponent(revision, isDirectory: true)
         }
@@ -288,6 +291,7 @@ final class ModelManager: ObservableObject {
         case .singleFile:
             return fileManager.fileExists(atPath: url.path)
         case .huggingFaceSnapshot:
+            if item.backend == .bark { return BarkResources.isInstalled(item, at: url) }
             return fileManager.fileExists(atPath: url.appendingPathComponent("installation.json").path)
                 && fileManager.fileExists(atPath: url.appendingPathComponent("model.safetensors").path)
         }

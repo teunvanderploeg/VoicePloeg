@@ -21,7 +21,8 @@ struct MenuBarRoot: View {
                 Text(buttonTitle)
             }
             .disabled(coordinator.state == .starting || coordinator.state == .processing
-                || coordinator.isDownloadingModel || coordinator.isInstallingCrisperRuntime)
+                || coordinator.isDownloadingModel || coordinator.isInstallingCrisperRuntime
+                || coordinator.isInstallingBarkRuntime)
 
             if case let .listening(startedAt) = coordinator.state {
                 TimelineView(.periodic(from: startedAt, by: 1)) { context in
@@ -54,6 +55,13 @@ struct MenuBarRoot: View {
                 Text("Language: \(languageLabel)")
             }
             .keyboardShortcut("l", modifiers: [.control, .option])
+
+            if let model = coordinator.selectedModel() {
+                Text(model.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             Divider()
 

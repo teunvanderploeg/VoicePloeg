@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		0D04A8DAE64CC811A7BF4C0D /* CrisperWhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7303FB7D3775900DC9C0334A /* CrisperWhisperTranscriber.swift */; };
 		1266E490549AC9F35802D24F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0D5AB9A6418E20B389E44442 /* Assets.xcassets */; };
+		14562A90A61BCE011DD6EFEC /* LocalSpeechWorkerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BBD2604735BE224476FDE7E /* LocalSpeechWorkerClient.swift */; };
+		1561B0CD59A9A7BA19A4DE78 /* BARK_PLUS_NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = A458BEDEA8329741D41EBE54 /* BARK_PLUS_NOTICE */; };
 		1714C2B0C43E31A8A75CE7E7 /* VoicePloegApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA18EF1D0257584840C8DAC /* VoicePloegApp.swift */; };
 		19DCF321FB05BB16E91D4D3B /* ModelPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C81595F096E568C71F853BE /* ModelPickerView.swift */; };
 		27F904A4C4DDD2CD9A5974AF /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBB2DBD3E6356969488ADD0 /* GlobalHotkeyService.swift */; };
@@ -18,7 +20,9 @@
 		44118B4EB5D90042E87A4CB9 /* CrisperRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971939EA2AE885A05B4C9B91 /* CrisperRuntimeManager.swift */; };
 		48E09392C8977294CF9392D3 /* ModelFileVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E4C5836E47D96688D5DD0E4 /* ModelFileVerifier.swift */; };
 		557D7E20CCF2654BF611332F /* TextOutputController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F783264B5352F69867FE9122 /* TextOutputController.swift */; };
+		5EAB5283AA78A791D7A5C033 /* bark-requirements.in in Resources */ = {isa = PBXBuildFile; fileRef = EB7403E51C4312C0CDC0357D /* bark-requirements.in */; };
 		5F0AC31405F0C192063D804F /* AudioInputDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D18E7A326A3EF96DBC401A /* AudioInputDeviceManager.swift */; };
+		60163847FDE6726BAEB5FB2E /* bark_mlx.py in Resources */ = {isa = PBXBuildFile; fileRef = 1DCADE46AAF2E235538E9A0F /* bark_mlx.py */; };
 		6AE59E526F84AC18B9B0E610 /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E4640783CA610FF6D48892 /* ModelManager.swift */; };
 		6C06C010EC2D1EC5375B7CC6 /* worker.py in Resources */ = {isa = PBXBuildFile; fileRef = A0765DB23C2C6632F61D8CBE /* worker.py */; };
 		7493A000EBB7BEC7E3D8411F /* MenuBarRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3FABD855D34542534AD67FF /* MenuBarRoot.swift */; };
@@ -28,18 +32,28 @@
 		873CC2D8E97D82B7E83E0037 /* requirements.in in Resources */ = {isa = PBXBuildFile; fileRef = 3ACCB7B9A7EDB31BA949603D /* requirements.in */; };
 		88F58EFC41F1460C81CE918F /* PermissionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF03C958913CA24981F9339 /* PermissionController.swift */; };
 		93124891A537354135C7244F /* ModelCatalog.json in Resources */ = {isa = PBXBuildFile; fileRef = B6E9E0494B85E3D195BAF726 /* ModelCatalog.json */; };
+		93ECC02527E41F99181D0291 /* BARK_NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = BFEB3CA95B983C0A2A9FB736 /* BARK_NOTICE */; };
+		98F96C22CC39A9C8DD1B8D1D /* BARK_SOURCE.txt in Resources */ = {isa = PBXBuildFile; fileRef = C827E4CDFDE6B0A2E0A69B11 /* BARK_SOURCE.txt */; };
+		9A704C4E8C5D5BE61441EE00 /* bark_loader.py in Resources */ = {isa = PBXBuildFile; fileRef = E2D5EF563E0694714CBC16A4 /* bark_loader.py */; };
 		9F981DDB292A3ECC27FFAF44 /* HotkeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053D71FA0E3DE44B582519B1 /* HotkeyRecorderView.swift */; };
 		A3396508670A58478C8C7479 /* RecordingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2FA4A32267590F6A2731BA /* RecordingController.swift */; };
+		B7C209CF586E00E7514B32F8 /* bark_worker.py in Resources */ = {isa = PBXBuildFile; fileRef = 276690DA04C8B7EB344B4521 /* bark_worker.py */; };
 		BA2C1E7B19A4B8142972A5E0 /* WavWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751D3B8633EA93543B62EE64 /* WavWriter.swift */; };
 		BB0EE50D8252D201A8A2FDA2 /* CrisperWorkerProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */; };
 		BD231371E06F751DE99A485D /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B05282460DE472F3255325 /* AppCoordinator.swift */; };
 		C11002C31D6044A50D29998F /* SpeechTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */; };
 		C40C0599878D1FFE72885BC4 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5244A4DD06A4145224E508 /* AppSettings.swift */; };
+		C5D6EC394218D57701CE1CED /* BARK_PRO_NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = F099CD068AFD67E958FFABFB /* BARK_PRO_NOTICE */; };
 		CBFD695D8E9A06DAAB2300EC /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C1A6124ABA66EE1B659BE7 /* AppState.swift */; };
 		D5CE58B212DF04A1C3471039 /* ReleaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE81C2F95ADB2237E5667EC4 /* ReleaseConfig.swift */; };
 		D5DE9381B79B2EB4D7C9A810 /* SpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222AEBE4EEE8A6FBA0F2A2D7 /* SpeechTranscriber.swift */; };
+		D67136DFD64F314D6B44490E /* bark-requirements.lock in Resources */ = {isa = PBXBuildFile; fileRef = 8252FBC0B8EE944E35F7776E /* bark-requirements.lock */; };
 		D96CAE976D6825C885E0AAED /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD1B399FBC8C2812D9D9BE7 /* AudioCaptureService.swift */; };
+		DE9C02CF03968E434E049DF0 /* BarkTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDB64D666E67FC004A657E4 /* BarkTranscriber.swift */; };
 		E1651EFF2A69321A5C6B53AF /* WhisperBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = DDDBEFB553763A550421BD01 /* WhisperBridge.mm */; };
+		E501526CAF544B930CA0DFDE /* BarkRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7160C95F266602067CC815 /* BarkRuntimeManager.swift */; };
+		E903A5CAE2C5A58F73B3B865 /* LanguageModelAssignmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8DF7D987E7D826CDED8079 /* LanguageModelAssignmentsView.swift */; };
+		EAD16CAB3A1C81720EE48770 /* bark-model-files.json in Resources */ = {isa = PBXBuildFile; fileRef = D48B3EC8413A80D2AEF18707 /* bark-model-files.json */; };
 		EF7C9D7C66B61762B23EF42D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191628BD5A5273B7DF6D4D42 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
@@ -49,13 +63,17 @@
 		0DF03C958913CA24981F9339 /* PermissionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionController.swift; sourceTree = "<group>"; };
 		191628BD5A5273B7DF6D4D42 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1C81595F096E568C71F853BE /* ModelPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPickerView.swift; sourceTree = "<group>"; };
+		1DCADE46AAF2E235538E9A0F /* bark_mlx.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bark_mlx.py; sourceTree = "<group>"; };
 		222AEBE4EEE8A6FBA0F2A2D7 /* SpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriber.swift; sourceTree = "<group>"; };
 		2738C42F40B004ACC95F5613 /* SubprocessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubprocessRunner.swift; sourceTree = "<group>"; };
+		276690DA04C8B7EB344B4521 /* bark_worker.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bark_worker.py; sourceTree = "<group>"; };
 		2EA18EF1D0257584840C8DAC /* VoicePloegApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePloegApp.swift; sourceTree = "<group>"; };
 		390EE47A2461F7AD190F01BB /* requirements.lock */ = {isa = PBXFileReference; path = requirements.lock; sourceTree = "<group>"; };
 		3ACCB7B9A7EDB31BA949603D /* requirements.in */ = {isa = PBXFileReference; path = requirements.in; sourceTree = "<group>"; };
+		3EDB64D666E67FC004A657E4 /* BarkTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarkTranscriber.swift; sourceTree = "<group>"; };
 		4B5244A4DD06A4145224E508 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		4BD1B399FBC8C2812D9D9BE7 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
+		4C7160C95F266602067CC815 /* BarkRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarkRuntimeManager.swift; sourceTree = "<group>"; };
 		51E4640783CA610FF6D48892 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionService.swift; sourceTree = "<group>"; };
 		59A1F32AAC7F28666896306F /* VoicePloeg.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoicePloeg.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -64,21 +82,31 @@
 		7303FB7D3775900DC9C0334A /* CrisperWhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrisperWhisperTranscriber.swift; sourceTree = "<group>"; };
 		74B05282460DE472F3255325 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
 		751D3B8633EA93543B62EE64 /* WavWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavWriter.swift; sourceTree = "<group>"; };
+		7BBD2604735BE224476FDE7E /* LocalSpeechWorkerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechWorkerClient.swift; sourceTree = "<group>"; };
+		8252FBC0B8EE944E35F7776E /* bark-requirements.lock */ = {isa = PBXFileReference; path = "bark-requirements.lock"; sourceTree = "<group>"; };
 		8D2E1CB52F5B78C29DBE4FA3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		94DE2D9DD19CF6196A733BF8 /* WhisperCppTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperCppTranscriber.swift; sourceTree = "<group>"; };
 		971939EA2AE885A05B4C9B91 /* CrisperRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrisperRuntimeManager.swift; sourceTree = "<group>"; };
 		9E4C5836E47D96688D5DD0E4 /* ModelFileVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelFileVerifier.swift; sourceTree = "<group>"; };
 		A0765DB23C2C6632F61D8CBE /* worker.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = worker.py; sourceTree = "<group>"; };
+		A458BEDEA8329741D41EBE54 /* BARK_PLUS_NOTICE */ = {isa = PBXFileReference; path = BARK_PLUS_NOTICE; sourceTree = "<group>"; };
 		ACEC8B4154FC0874F2A37FA9 /* WhisperCLIResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperCLIResolver.swift; sourceTree = "<group>"; };
 		B5D18E7A326A3EF96DBC401A /* AudioInputDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioInputDeviceManager.swift; sourceTree = "<group>"; };
 		B6E9E0494B85E3D195BAF726 /* ModelCatalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ModelCatalog.json; sourceTree = "<group>"; };
+		BD8DF7D987E7D826CDED8079 /* LanguageModelAssignmentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageModelAssignmentsView.swift; sourceTree = "<group>"; };
 		BE81C2F95ADB2237E5667EC4 /* ReleaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseConfig.swift; sourceTree = "<group>"; };
+		BFEB3CA95B983C0A2A9FB736 /* BARK_NOTICE */ = {isa = PBXFileReference; path = BARK_NOTICE; sourceTree = "<group>"; };
 		C0C1A6124ABA66EE1B659BE7 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		C827E4CDFDE6B0A2E0A69B11 /* BARK_SOURCE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = BARK_SOURCE.txt; sourceTree = "<group>"; };
 		CA2FA4A32267590F6A2731BA /* RecordingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingController.swift; sourceTree = "<group>"; };
+		D48B3EC8413A80D2AEF18707 /* bark-model-files.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bark-model-files.json"; sourceTree = "<group>"; };
 		DD49A4CD2AF3AA1E5F3AD8B4 /* RecordingFeedbackPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingFeedbackPlayer.swift; sourceTree = "<group>"; };
 		DDDBEFB553763A550421BD01 /* WhisperBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = WhisperBridge.mm; sourceTree = "<group>"; };
+		E2D5EF563E0694714CBC16A4 /* bark_loader.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bark_loader.py; sourceTree = "<group>"; };
 		E3FABD855D34542534AD67FF /* MenuBarRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarRoot.swift; sourceTree = "<group>"; };
+		EB7403E51C4312C0CDC0357D /* bark-requirements.in */ = {isa = PBXFileReference; path = "bark-requirements.in"; sourceTree = "<group>"; };
 		EEBB2DBD3E6356969488ADD0 /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
+		F099CD068AFD67E958FFABFB /* BARK_PRO_NOTICE */ = {isa = PBXFileReference; path = BARK_PRO_NOTICE; sourceTree = "<group>"; };
 		F5B82096CE802CBDA54624AA /* uv */ = {isa = PBXFileReference; path = uv; sourceTree = "<group>"; };
 		F783264B5352F69867FE9122 /* TextOutputController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextOutputController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -107,6 +135,23 @@
 				F783264B5352F69867FE9122 /* TextOutputController.swift */,
 			);
 			path = TextOutput;
+			sourceTree = "<group>";
+		};
+		2A58B9277A64766F33517B52 /* BarkWorker */ = {
+			isa = PBXGroup;
+			children = (
+				E2D5EF563E0694714CBC16A4 /* bark_loader.py */,
+				1DCADE46AAF2E235538E9A0F /* bark_mlx.py */,
+				BFEB3CA95B983C0A2A9FB736 /* BARK_NOTICE */,
+				A458BEDEA8329741D41EBE54 /* BARK_PLUS_NOTICE */,
+				F099CD068AFD67E958FFABFB /* BARK_PRO_NOTICE */,
+				C827E4CDFDE6B0A2E0A69B11 /* BARK_SOURCE.txt */,
+				276690DA04C8B7EB344B4521 /* bark_worker.py */,
+				D48B3EC8413A80D2AEF18707 /* bark-model-files.json */,
+				EB7403E51C4312C0CDC0357D /* bark-requirements.in */,
+				8252FBC0B8EE944E35F7776E /* bark-requirements.lock */,
+			);
+			path = BarkWorker;
 			sourceTree = "<group>";
 		};
 		3D00BBCD33057C4A07D4B0EC /* Settings */ = {
@@ -164,6 +209,7 @@
 			isa = PBXGroup;
 			children = (
 				B6E9E0494B85E3D195BAF726 /* ModelCatalog.json */,
+				2A58B9277A64766F33517B52 /* BarkWorker */,
 				F78C3BFE900E86BA60AEDDFD /* CrisperWorker */,
 			);
 			path = Resources;
@@ -173,6 +219,7 @@
 			isa = PBXGroup;
 			children = (
 				053D71FA0E3DE44B582519B1 /* HotkeyRecorderView.swift */,
+				BD8DF7D987E7D826CDED8079 /* LanguageModelAssignmentsView.swift */,
 				1C81595F096E568C71F853BE /* ModelPickerView.swift */,
 				191628BD5A5273B7DF6D4D42 /* SettingsView.swift */,
 			);
@@ -219,9 +266,12 @@
 		B8D245D3CEDFDD468CB025F1 /* STT */ = {
 			isa = PBXGroup;
 			children = (
+				4C7160C95F266602067CC815 /* BarkRuntimeManager.swift */,
+				3EDB64D666E67FC004A657E4 /* BarkTranscriber.swift */,
 				971939EA2AE885A05B4C9B91 /* CrisperRuntimeManager.swift */,
 				7303FB7D3775900DC9C0334A /* CrisperWhisperTranscriber.swift */,
 				5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */,
+				7BBD2604735BE224476FDE7E /* LocalSpeechWorkerClient.swift */,
 				222AEBE4EEE8A6FBA0F2A2D7 /* SpeechTranscriber.swift */,
 				5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */,
 				751D3B8633EA93543B62EE64 /* WavWriter.swift */,
@@ -326,7 +376,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				1266E490549AC9F35802D24F /* Assets.xcassets in Resources */,
+				93ECC02527E41F99181D0291 /* BARK_NOTICE in Resources */,
+				1561B0CD59A9A7BA19A4DE78 /* BARK_PLUS_NOTICE in Resources */,
+				C5D6EC394218D57701CE1CED /* BARK_PRO_NOTICE in Resources */,
+				98F96C22CC39A9C8DD1B8D1D /* BARK_SOURCE.txt in Resources */,
 				93124891A537354135C7244F /* ModelCatalog.json in Resources */,
+				EAD16CAB3A1C81720EE48770 /* bark-model-files.json in Resources */,
+				5EAB5283AA78A791D7A5C033 /* bark-requirements.in in Resources */,
+				D67136DFD64F314D6B44490E /* bark-requirements.lock in Resources */,
+				9A704C4E8C5D5BE61441EE00 /* bark_loader.py in Resources */,
+				60163847FDE6726BAEB5FB2E /* bark_mlx.py in Resources */,
+				B7C209CF586E00E7514B32F8 /* bark_worker.py in Resources */,
 				873CC2D8E97D82B7E83E0037 /* requirements.in in Resources */,
 				388ACA75A69FFAC9A0F42923 /* requirements.lock in Resources */,
 				370A1CC446427285693AB5D7 /* uv in Resources */,
@@ -387,11 +447,15 @@
 				CBFD695D8E9A06DAAB2300EC /* AppState.swift in Sources */,
 				D96CAE976D6825C885E0AAED /* AudioCaptureService.swift in Sources */,
 				5F0AC31405F0C192063D804F /* AudioInputDeviceManager.swift in Sources */,
+				E501526CAF544B930CA0DFDE /* BarkRuntimeManager.swift in Sources */,
+				DE9C02CF03968E434E049DF0 /* BarkTranscriber.swift in Sources */,
 				44118B4EB5D90042E87A4CB9 /* CrisperRuntimeManager.swift in Sources */,
 				0D04A8DAE64CC811A7BF4C0D /* CrisperWhisperTranscriber.swift in Sources */,
 				BB0EE50D8252D201A8A2FDA2 /* CrisperWorkerProtocol.swift in Sources */,
 				27F904A4C4DDD2CD9A5974AF /* GlobalHotkeyService.swift in Sources */,
 				9F981DDB292A3ECC27FFAF44 /* HotkeyRecorderView.swift in Sources */,
+				E903A5CAE2C5A58F73B3B865 /* LanguageModelAssignmentsView.swift in Sources */,
+				14562A90A61BCE011DD6EFEC /* LocalSpeechWorkerClient.swift in Sources */,
 				7493A000EBB7BEC7E3D8411F /* MenuBarRoot.swift in Sources */,
 				48E09392C8977294CF9392D3 /* ModelFileVerifier.swift in Sources */,
 				6AE59E526F84AC18B9B0E610 /* ModelManager.swift in Sources */,

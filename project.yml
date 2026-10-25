@@ -16,6 +16,9 @@ targets:
       - path: UI
       - path: Resources
         buildPhase: resources
+        excludes:
+          - "**/__pycache__"
+          - "**/*.pyc"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.voiceploeg.app
