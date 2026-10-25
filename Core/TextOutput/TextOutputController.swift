@@ -67,6 +67,43 @@ enum TextOutputTargetPolicy {
     }
 }
 
+enum TextOutputApplicationPolicy {
+    static func prefersClipboardPaste(bundleIdentifier: String?) -> Bool {
+        // Use the editor's paste handler in these apps instead of assuming that
+        // an accepted AXSelectedText write has updated the composer.
+        switch bundleIdentifier {
+        case "com.openai.codex", "com.openai.chat":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+@MainActor
+enum TextInsertionTransaction {
+    static func insert(
+        bundleIdentifier: String?,
+        insertUsingAccessibility: () throws -> Bool,
+        waitForShortcutRelease: () async throws -> Void,
+        insertUsingClipboardPaste: () async throws -> Void
+    ) async throws -> TextInsertionMethod {
+        if !TextOutputApplicationPolicy.prefersClipboardPaste(bundleIdentifier: bundleIdentifier) {
+            do {
+                if try insertUsingAccessibility() {
+                    return .accessibility
+                }
+            } catch TextOutputError.targetFocusUnavailable {
+                // Some editors accept paste without exposing a focused AX text element.
+            }
+        }
+
+        try await waitForShortcutRelease()
+        try await insertUsingClipboardPaste()
+        return .clipboardPaste
+    }
+}
+
 final class ActiveAppTextOutputController: TextOutputController {
     func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -80,18 +117,18 @@ final class ActiveAppTextOutputController: TextOutputController {
 
         try await activateAndVerifyTarget(processID: targetProcessID)
 
-        do {
-            if try insertUsingAccessibility(trimmed, targetProcessID: targetProcessID) {
-                return .accessibility
+        return try await TextInsertionTransaction.insert(
+            bundleIdentifier: NSRunningApplication(processIdentifier: targetProcessID)?.bundleIdentifier,
+            insertUsingAccessibility: {
+                try self.insertUsingAccessibility(trimmed, targetProcessID: targetProcessID)
+            },
+            waitForShortcutRelease: {
+                try await self.waitForShortcutRelease()
+            },
+            insertUsingClipboardPaste: {
+                try await self.insertUsingClipboardPaste(trimmed, targetProcessID: targetProcessID)
             }
-        } catch TextOutputError.targetFocusUnavailable {
-            // Some complex editors, including Word, do not expose a settable
-            // focused text element even though they accept a regular paste.
-        }
-
-        try await waitForShortcutRelease()
-        try await insertUsingClipboardPaste(trimmed, targetProcessID: targetProcessID)
-        return .clipboardPaste
+        )
     }
 
     private func activateAndVerifyTarget(processID: pid_t) async throws {
@@ -204,11 +241,11 @@ final class ActiveAppTextOutputController: TextOutputController {
                     throw TextOutputError.targetActivationFailed
                 }
             },
-            postPaste: { try Self.postPaste(to: targetProcessID) }
+            postPaste: { try Self.postPaste() }
         )
     }
 
-    private static func postPaste(to targetProcessID: pid_t) throws {
+    private static func postPaste() throws {
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
             throw TextOutputError.insertionFailed
         }
@@ -221,8 +258,11 @@ final class ActiveAppTextOutputController: TextOutputController {
         }
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-        keyDown.postToPid(targetProcessID)
-        keyUp.postToPid(targetProcessID)
+        // The transaction verifies the original app is frontmost immediately
+        // before posting. Use normal session routing for the paste shortcut so
+        // web-backed editors can handle it through their regular keyboard path.
+        keyDown.post(tap: .cgSessionEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
     }
 }
 

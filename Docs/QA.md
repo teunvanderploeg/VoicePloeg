@@ -35,6 +35,9 @@
 
 - AX insertion in TextEdit and Notes.
 - Clipboard fallback in app where AX fails.
+- Dictate into Codex and ChatGPT composers with existing text and with selected text. Verify insertion at the caret or replacement of the selection, and that the app recognizes the edited draft.
+- Stop dictation while holding the hotkey modifiers. Verify paste waits for release and inserts only once.
+- Start dictation in Codex/ChatGPT, switch to another app while processing, and verify output returns to the original app. If activation fails, verify no text is pasted elsewhere and the transcript remains in History.
 - Existing clipboard contents are restored.
 
 ## Performance

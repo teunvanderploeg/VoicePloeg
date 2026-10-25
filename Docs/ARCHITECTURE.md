@@ -9,8 +9,9 @@
    - `WhisperCppTranscriber` writes a temporary WAV and invokes local `whisper-cli`.
    - `CrisperWhisperTranscriber` sends the temporary WAV to a persistent local Python/PyTorch worker using newline-delimited JSON.
 5. Transcription result is inserted by `ActiveAppTextOutputController`:
-   - Accessibility insertion first
-   - Clipboard paste fallback
+   - Clipboard paste for Codex and ChatGPT composers
+   - Accessibility insertion first in other apps, with clipboard paste fallback
+   - Paste shortcuts use the macOS session event stream after verifying the original app is frontmost
 
 ## Core Interfaces
 

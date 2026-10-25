@@ -3,7 +3,7 @@
 Native macOS (Swift + SwiftUI) menu bar app for offline dictation:
 - Global hotkey toggles recording
 - Selectable local transcription via `whisper.cpp`, CrisperWhisper 2.0, or Underdog Bark 3.0
-- Text insertion into the active app (AX first, clipboard fallback)
+- Text insertion into the active app through Accessibility or clipboard paste
 
 ## Current v1 Prototype Status
 
@@ -18,7 +18,7 @@ Implemented:
 - Offline transcription through local `whisper-cli`
 - Optional local CrisperWhisper 2.0 intended-mode transcription on Apple Silicon
 - App-managed Python/PyTorch runtime and local small/medium/turbo/large model downloads
-- Text output into focused app with accessibility-first strategy and clipboard fallback
+- Text output through Accessibility with clipboard fallback, and direct clipboard paste for Codex and ChatGPT
 - Settings for model, hotkey, language, and `whisper-cli` path
 
 ## Project Layout
