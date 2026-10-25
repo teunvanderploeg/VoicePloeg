@@ -39,7 +39,7 @@ actor BarkTranscriber: SpeechTranscribing {
         let activeClient = try await prepareClient(modelURL: request.localModelURL)
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoicePloeg-Bark-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
         let wavURL = temporaryDirectory.appendingPathComponent("input.wav")

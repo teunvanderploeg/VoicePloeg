@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -174,9 +175,23 @@ def install_model(
                 "*.tiktoken",
             ],
         )
-        if not (temporary / "model.safetensors").is_file():
-            raise RuntimeError("Downloaded snapshot has no model.safetensors")
+        required_files = ["model.safetensors", "config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json"]
+        if not all((temporary / name).is_file() and (temporary / name).stat().st_size > 0 for name in required_files):
+            raise RuntimeError("Downloaded Crisper snapshot is incomplete")
+        # Loading entirely offline checks weights, tokenizer and configuration together.
+        load_model(str(temporary), "mps", "float16")
+        global MODEL, MODEL_PATH
+        MODEL = MODEL_PATH = None
+        files = {}
+        for file in temporary.iterdir():
+            if file.is_file():
+                digest = hashlib.sha256()
+                with file.open("rb") as source:
+                    for block in iter(lambda: source.read(1024 * 1024), b""):
+                        digest.update(block)
+                files[file.name] = {"size": file.stat().st_size, "sha256": digest.hexdigest()}
         manifest = {
+            "files": files,
             "modelID": model_id,
             "repository": repository,
             "revision": revision,
@@ -186,9 +201,23 @@ def install_model(
         (temporary / "installation.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
+        backup = destination.with_name(f".{destination.name}-previous")
+        # Recover a previous interrupted publish before starting another replacement.
+        if backup.exists():
+            if not destination.exists():
+                backup.replace(destination)
+            else:
+                shutil.rmtree(backup)
         if destination.exists():
-            shutil.rmtree(destination)
-        temporary.replace(destination)
+            destination.replace(backup)
+        try:
+            temporary.replace(destination)
+        except Exception:
+            if backup.exists():
+                backup.replace(destination)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary, ignore_errors=True)

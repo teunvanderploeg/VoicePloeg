@@ -1,4 +1,6 @@
-# VoicePloeg Improvement Backlog (Deep Dive)
+# Historical VoicePloeg improvement backlog
+
+This February review is historical. Several findings were already fixed before the October review. See `Docs/DEEP_DIVE_2026-10-25.md` for that review and `Docs/UPGRADES_2026-10-25.md` for the implementation status.
 
 Date: 2026-02-18
 Scope: First-party code only (`App`, `Core`, `UI`, `Resources`, `Scripts`, `Docs`). `Vendor/whisper.cpp` internals excluded.

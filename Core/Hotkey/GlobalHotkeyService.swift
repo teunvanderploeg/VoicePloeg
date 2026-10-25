@@ -35,30 +35,37 @@ struct HotkeyCombination: Codable, Equatable {
         return HotkeyCombination(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
     }
 
+    var isValidRecordingShortcut: Bool {
+        keyCode <= 127 && carbonModifiers & UInt32(cmdKey | controlKey | optionKey) != 0 && self != .languageCycle
+    }
+
     private static func keyLabel(for keyCode: UInt32) -> String {
-        switch Int(keyCode) {
-        case kVK_Space:
-            return "Space"
-        case kVK_Return:
-            return "Return"
-        case kVK_Escape:
-            return "Esc"
-        case kVK_ANSI_L:
-            return "L"
-        default:
-            if let scalar = UnicodeScalar(Int(keyCode) + 0x41), scalar.properties.isAlphabetic {
-                return String(scalar)
-            }
-            return "Key(\(keyCode))"
-        }
+        let special: [Int: String] = [kVK_Space: "Space", kVK_Return: "Return", kVK_Escape: "Esc",
+            kVK_Tab: "Tab", kVK_Delete: "Delete", kVK_ForwardDelete: "Forward Delete",
+            kVK_LeftArrow: "←", kVK_RightArrow: "→", kVK_UpArrow: "↑", kVK_DownArrow: "↓"]
+        if let label = special[Int(keyCode)] { return label }
+        let source = TISCopyCurrentKeyboardLayoutInputSource().takeRetainedValue()
+        guard let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return "Key(\(keyCode))" }
+        let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue()
+        let layout = unsafeBitCast(CFDataGetBytePtr(data), to: UnsafePointer<UCKeyboardLayout>.self)
+        var deadKey: UInt32 = 0
+        var length = 0
+        var characters = [UniChar](repeating: 0, count: 8)
+        let status = UCKeyTranslate(layout, UInt16(keyCode), UInt16(kUCKeyActionDisplay), 0,
+            UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKey,
+            characters.count, &length, &characters)
+        guard status == noErr, length > 0 else { return "Key(\(keyCode))" }
+        return String(utf16CodeUnits: characters, count: length).uppercased()
     }
 }
 
 enum GlobalHotkeyError: Error, LocalizedError {
     case registrationFailed(OSStatus)
+    case invalidCombination
 
     var errorDescription: String? {
         switch self {
+        case .invalidCombination: return UserFacingMessage.hotkeyReserved
         case let .registrationFailed(status):
             return "Hotkey registration failed with status \(status)"
         }
@@ -73,9 +80,14 @@ enum GlobalHotkeyError: Error, LocalizedError {
 /// removed and re-added independently. The safe pattern is one handler that dispatches
 /// by `EventHotKeyID.id`.
 protocol GlobalHotkeyManaging: AnyObject {
+    var registrationWarning: String? { get }
     var onTrigger: (() -> Void)? { get set }
     var onLanguageCycleTrigger: (() -> Void)? { get set }
     func register(_ combination: HotkeyCombination) throws
+}
+
+extension GlobalHotkeyManaging {
+    var registrationWarning: String? { nil }
 }
 
 final class GlobalHotkeyService: GlobalHotkeyManaging {
@@ -85,6 +97,12 @@ final class GlobalHotkeyService: GlobalHotkeyManaging {
     private let recordingID: UInt32 = 1
     private let languageID:  UInt32 = 2
 
+    private var startupError: OSStatus?
+    private var languageRegistrationError: OSStatus?
+    var registrationWarning: String? {
+        languageRegistrationError.map { UserFacingMessage.languageHotkeyRegistrationFailed($0) }
+    }
+    private var registeredCombination: HotkeyCombination?
     private var eventHandler: EventHandlerRef?
     private var recordingHotKeyRef: EventHotKeyRef?
     private var languageHotKeyRef:  EventHotKeyRef?
@@ -111,8 +129,10 @@ final class GlobalHotkeyService: GlobalHotkeyManaging {
     // MARK: - Public API
 
     func register(_ combination: HotkeyCombination) throws {
-        unregisterRecordingHotkey()
-
+        guard combination.isValidRecordingShortcut else { throw GlobalHotkeyError.invalidCombination }
+        if let startupError { throw GlobalHotkeyError.registrationFailed(startupError) }
+        guard combination != registeredCombination else { return }
+        var replacement: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: signature, id: recordingID)
         let status = RegisterEventHotKey(
             combination.keyCode,
@@ -120,11 +140,12 @@ final class GlobalHotkeyService: GlobalHotkeyManaging {
             hotKeyID,
             GetEventDispatcherTarget(),
             0,
-            &recordingHotKeyRef
+            &replacement
         )
-        guard status == noErr else {
-            throw GlobalHotkeyError.registrationFailed(status)
-        }
+        guard status == noErr else { throw GlobalHotkeyError.registrationFailed(status) }
+        unregisterRecordingHotkey()
+        recordingHotKeyRef = replacement
+        registeredCombination = combination
     }
 
     func unregister() {
@@ -139,7 +160,7 @@ final class GlobalHotkeyService: GlobalHotkeyManaging {
             eventKind: OSType(kEventHotKeyPressed)
         )
 
-        InstallEventHandler(
+        let status = InstallEventHandler(
             GetEventDispatcherTarget(),
             { _, eventRef, userData -> OSStatus in
                 guard let userData, let eventRef else { return noErr }
@@ -169,11 +190,12 @@ final class GlobalHotkeyService: GlobalHotkeyManaging {
             UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
             &eventHandler
         )
+        if status != noErr { startupError = status }
     }
 
     private func registerLanguageHotkey() {
         let hotKeyID = EventHotKeyID(signature: signature, id: languageID)
-        RegisterEventHotKey(
+        let status = RegisterEventHotKey(
             HotkeyCombination.languageCycle.keyCode,
             HotkeyCombination.languageCycle.carbonModifiers,
             hotKeyID,
@@ -181,9 +203,11 @@ final class GlobalHotkeyService: GlobalHotkeyManaging {
             0,
             &languageHotKeyRef
         )
+        if status != noErr { languageRegistrationError = status }
     }
 
     private func unregisterRecordingHotkey() {
+        registeredCombination = nil
         if let ref = recordingHotKeyRef {
             UnregisterEventHotKey(ref)
             recordingHotKeyRef = nil

@@ -3,6 +3,13 @@ import XCTest
 @testable import VoicePloeg
 
 final class LocalSpeechWorkerClientTests: XCTestCase {
+    func testShutdownAllowsPythonCleanupAfterAcknowledgement() async throws {
+        let fixture = try WorkerFixture()
+        defer { fixture.cleanup() }
+        let client = try fixture.makeClient()
+        try await client.shutdown()
+        XCTAssertEqual(try String(contentsOf: fixture.marker), "cleaned up")
+    }
     func testClosedWorkerPipeCannotTerminateApp() async throws {
         // Exercise the regression with default SIGPIPE handling in a separate test
         // process. A future regression must fail this test, not kill the suite.
@@ -136,13 +143,18 @@ private struct WorkerFixture {
                 time.sleep(2)
                 break
             if command == 'shutdown':
+                time.sleep(0.15)
+                with open(os.environ['VOICEPLOEG_SHUTDOWN_MARKER'], 'w') as marker:
+                    marker.write('cleaned up')
                 break
         """.write(to: worker, atomically: true, encoding: .utf8)
     }
 
     func makeClient() throws -> LocalSpeechWorkerClient {
-        try LocalSpeechWorkerClient(pythonURL: URL(fileURLWithPath: "/usr/bin/python3"), workerURL: worker,
-            environment: ProcessInfo.processInfo.environment)
+        var environment = ProcessInfo.processInfo.environment
+        environment["VOICEPLOEG_SHUTDOWN_MARKER"] = marker.path
+        return try LocalSpeechWorkerClient(pythonURL: URL(fileURLWithPath: "/usr/bin/python3"), workerURL: worker,
+            environment: environment)
     }
 
     func waitForRequest() async throws {

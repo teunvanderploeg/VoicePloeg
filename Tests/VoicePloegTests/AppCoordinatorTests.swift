@@ -5,6 +5,105 @@ import XCTest
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
+    func testModelUnloadsAfterConfiguredIdlePeriod() async throws {
+        let fixture = try Fixture(idleTimeout: 0.05)
+        defer { fixture.cleanup() }
+        try await waitUntil { await fixture.transcriber.warmupReleaseCount > 0 }
+        XCTAssertFalse(fixture.coordinator.isPreparingModel)
+    }
+
+    func testShutdownWhilePermissionPendingCannotStartCaptureLater() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.permissions.suspendRequest = true
+        let start = Task { await fixture.coordinator.toggleRecording() }
+        try await waitUntil { fixture.permissions.requestCount == 1 }
+        await fixture.coordinator.shutdown()
+        fixture.permissions.resumeRequest()
+        await start.value
+        let starts = await fixture.recorder.startCount
+        XCTAssertEqual(starts, 0)
+    }
+
+    func testClearTranscriptsAlsoClearsCurrentTranscript() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.coordinator.lastTranscript = "private"
+        fixture.settings.addTranscriptToHistory("private", maxItems: 40)
+        fixture.coordinator.clearTranscriptHistory()
+        XCTAssertEqual(fixture.coordinator.lastTranscript, "")
+        XCTAssertTrue(fixture.settings.transcriptHistory.isEmpty)
+    }
+
+    func testHotkeyChangeCannotOverwriteRecordingOrBypassLimit() async throws {
+        let fixture = try Fixture(duration: 0.05)
+        defer { fixture.cleanup() }
+        await fixture.coordinator.toggleRecording()
+        fixture.hotkeys.shouldFail = true
+        fixture.coordinator.changeHotkey(HotkeyCombination(keyCode: 0, carbonModifiers: 4096))
+        XCTAssertTrue(fixture.coordinator.state.isDictationActive)
+        XCTAssertFalse(fixture.coordinator.canManageModels)
+        XCTAssertNotNil(fixture.coordinator.configurationError)
+        try await waitUntil { !fixture.coordinator.state.isDictationActive }
+        let stops = await fixture.recorder.stopCount
+        XCTAssertEqual(stops, 1)
+        XCTAssertEqual(fixture.settings.hotkey, .default)
+    }
+
+    func testFailedHotkeyChangeKeepsWorkingPreferenceAndState() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.hotkeys.shouldFail = true
+        fixture.coordinator.changeHotkey(HotkeyCombination(keyCode: 0, carbonModifiers: 4096))
+        XCTAssertEqual(fixture.settings.hotkey, .default)
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+        XCTAssertNotNil(fixture.coordinator.configurationError)
+    }
+
+    func testMissingModelAndCorruptionPreventMicrophoneCapture() async throws {
+        for missing in [false, true] {
+            let fixture = try Fixture()
+            defer { fixture.cleanup() }
+            if missing { try FileManager.default.removeItem(at: fixture.modelURL) }
+            else { try Data("bad model!".utf8).write(to: fixture.modelURL) }
+            await fixture.coordinator.toggleRecording()
+            let starts = await fixture.recorder.startCount
+            XCTAssertEqual(starts, 0)
+            XCTAssertEqual(fixture.permissions.requestCount, 0)
+            guard case .error = fixture.coordinator.state else { return XCTFail("Expected readiness error") }
+        }
+    }
+
+    func testFailedTranscriptionCanRetryWithoutRecordingOrPastingTwice() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        await fixture.transcriber.failNextTranscription()
+        await fixture.transcriber.setText("Recovered")
+        await fixture.coordinator.toggleRecording()
+        await fixture.coordinator.toggleRecording()
+        XCTAssertTrue(fixture.coordinator.hasRetainedRecording)
+        await fixture.coordinator.retryTranscription()
+        XCTAssertFalse(fixture.coordinator.hasRetainedRecording)
+        XCTAssertEqual(fixture.coordinator.lastTranscript, "Recovered")
+        XCTAssertEqual(fixture.settings.transcriptHistory.first?.text, "Recovered")
+        XCTAssertEqual(fixture.output.insertCount, 0)
+        let starts = await fixture.recorder.startCount
+        XCTAssertEqual(starts, 1)
+    }
+
+    func testShutdownStopsCaptureAndPreventsFurtherStarts() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        await fixture.coordinator.toggleRecording()
+        await fixture.coordinator.shutdown()
+        await fixture.coordinator.toggleRecording()
+        let starts = await fixture.recorder.startCount
+        let stops = await fixture.recorder.stopCount
+        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(stops, 1)
+        XCTAssertFalse(fixture.coordinator.hasRetainedRecording)
+    }
+
     func testRapidLanguageShortcutsWarmOnlyTheFinalSelection() async throws {
         let fixture = try Fixture(includeMultilingualModel: true)
         defer { fixture.cleanup() }
@@ -49,7 +148,7 @@ final class AppCoordinatorTests: XCTestCase {
         let releases = await fixture.transcriber.warmupReleaseCount
         let models = await fixture.transcriber.warmupModels
         XCTAssertEqual(releases, 0)
-        XCTAssertTrue(models.isEmpty)
+        XCTAssertEqual(models, ["test-multilingual.bin"])
         await fixture.coordinator.toggleRecording()
     }
 
@@ -209,12 +308,14 @@ private final class Fixture {
     let suiteName = "VoicePloeg-CoordinatorTests-\(UUID().uuidString)"
     let defaults: UserDefaults
     let settings: AppSettings
+    let hotkeys = TestHotkeys()
+    let output = TestOutput()
     let permissions = TestPermissions()
     let recorder = TestRecording()
     let transcriber = TestTranscriber()
     let coordinator: AppCoordinator
 
-    init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false) throws {
+    init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false, idleTimeout: TimeInterval = 600) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = Data("test model".utf8)
@@ -230,16 +331,18 @@ private final class Fixture {
         settings = AppSettings(userDefaults: defaults)
         settings.selectedWhisperModelID = model.id
         settings.selectedLanguage = "en"
+        settings.whisperCLIPath = "/usr/bin/true"
         var catalog = [model]
         if includeMultilingualModel {
             let multilingual = SpeechModelDescriptor(
                 id: "test-multilingual", displayName: "Test multilingual", sizeBytes: Int64(data.count),
-                languageSupport: ["en", "nl", "de"], precision: "fp16", acquisition: model.acquisition
+                languageSupport: ["auto", "en", "nl", "de"], precision: "fp16", acquisition: model.acquisition
             )
             catalog.append(multilingual)
             catalog.append(contentsOf: ModelManager().models(for: .bark))
             try data.write(to: directory.appendingPathComponent("test-multilingual.bin"))
             settings.defaultDictationModelID = multilingual.id
+            settings.automaticDictationModelID = multilingual.id
             settings.englishDictationModelID = model.id
             settings.dutchDictationModelID = multilingual.id
         }
@@ -248,12 +351,12 @@ private final class Fixture {
             modelManager: ModelManager(modelsDirectoryURL: directory, catalog: catalog),
             permissionController: permissions,
             recordingController: recorder,
-            textOutputController: TestOutput(),
-            hotkeyService: TestHotkeys(),
+            textOutputController: output,
+            hotkeyService: hotkeys,
             audioInputDeviceManager: TestDevices(),
             recordingFeedbackPlayer: TestFeedback(),
             transcriber: transcriber,
-            maxRecordingDurationSeconds: duration
+            maxRecordingDurationSeconds: duration, idleTimeoutSeconds: idleTimeout, outputTargetProvider: { 42 }
         )
     }
 
@@ -298,12 +401,14 @@ private actor TestRecording: RecordingController {
     var startCount = 0
     var stopCount = 0
     func start() { startCount += 1 }
-    func stop() -> [Float] { stopCount += 1; return [] }
+    func stop() -> [Float] { stopCount += 1; return [0.1, -0.1] }
 }
 
 private actor TestTranscriber: ManagedSpeechTranscribing {
     var requests: [TranscriptionRequest] = []
     private var text = ""
+    private var shouldFailTranscription = false
+    func failNextTranscription() { shouldFailTranscription = true }
     private var shouldSuspendWarmup = false
     var warmupModels: [String] = []
     var warmupReleaseCount = 0
@@ -316,8 +421,12 @@ private actor TestTranscriber: ManagedSpeechTranscribing {
     }
     func suspendNextWarmup() { shouldSuspendWarmup = true }
     func setText(_ text: String) { self.text = text }
-    func transcribe(_ request: TranscriptionRequest) -> TranscriptResult {
+    func transcribe(_ request: TranscriptionRequest) throws -> TranscriptResult {
         requests.append(request)
+        if shouldFailTranscription {
+            shouldFailTranscription = false
+            throw WhisperTranscriberError.processFailed("temporary failure")
+        }
         return TranscriptResult(text: text, segments: [], duration: 0, processingTime: 0)
     }
     func preloadModel(at modelURL: URL, backend: SpeechBackend) async throws {
@@ -343,7 +452,9 @@ private actor TestTranscriber: ManagedSpeechTranscribing {
 
 @MainActor
 private final class TestOutput: TextOutputController {
+    var insertCount = 0
     func insert(_ text: String, targetProcessID: pid_t) throws -> TextInsertionMethod {
+        insertCount += 1
         throw TextOutputError.insertionFailed
     }
 }
@@ -351,7 +462,12 @@ private final class TestOutput: TextOutputController {
 private final class TestHotkeys: GlobalHotkeyManaging {
     var onTrigger: (() -> Void)?
     var onLanguageCycleTrigger: (() -> Void)?
-    func register(_ combination: HotkeyCombination) {}
+    var shouldFail = false
+    var registrations: [HotkeyCombination] = []
+    func register(_ combination: HotkeyCombination) throws {
+        if shouldFail { throw GlobalHotkeyError.registrationFailed(-9878) }
+        registrations.append(combination)
+    }
 }
 
 private final class TestDevices: AudioInputDeviceManaging {

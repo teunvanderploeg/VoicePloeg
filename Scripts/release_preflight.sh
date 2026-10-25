@@ -47,6 +47,13 @@ require_cmd python3
 
 cd "$ROOT_DIR"
 
+if [[ "$STRICT_MODEL_CHECKSUMS" == "1" ]]; then
+  python3 Scripts/validate_model_catalog.py "$MODEL_CATALOG"
+else
+  python3 Scripts/validate_model_catalog.py "$MODEL_CATALOG" --allow-unverified
+fi
+python3 -m unittest discover -s "$ROOT_DIR/Tests/CatalogValidationTests" -v
+
 info "Step 1/5: Swift build"
 swift build
 
@@ -129,8 +136,9 @@ pattern_exists "crisperwhisper.*==${CRISPERWHISPER_VERSION}" "$CRISPER_REQUIREME
 pattern_exists 'sha256:' "$CRISPER_REQUIREMENTS" \
   || fail "CrisperWhisper lock has no package hashes"
 
+[[ -x "$CRISPER_UV" ]] || fail "Pinned uv executable missing; run Scripts/bootstrap_crisper_runtime.sh"
+/usr/bin/lipo -verify_arch arm64 "$CRISPER_UV" || fail "Runtime installer must support Apple Silicon"
 if [[ "$(uname -m)" == "arm64" ]]; then
-  [[ -x "$CRISPER_UV" ]] || fail "Pinned uv executable missing; run Scripts/bootstrap_crisper_runtime.sh"
   UV_OUTPUT="$("$CRISPER_UV" --version)"
   [[ "$UV_OUTPUT" == "uv ${UV_VERSION}"* ]] || fail "Bundled uv version mismatch"
 fi

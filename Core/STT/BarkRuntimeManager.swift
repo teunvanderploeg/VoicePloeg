@@ -29,6 +29,7 @@ enum BarkError: Error, LocalizedError {
 }
 
 actor BarkRuntimeManager {
+    private var isInstalling = false
     private let rootOverride: URL?
 
     init(rootURL: URL? = nil) {
@@ -36,7 +37,9 @@ actor BarkRuntimeManager {
     }
 
     func status() -> CrisperRuntimeStatus {
+        if isInstalling { return .installing }
         guard CrisperRuntimeManager.isCompatibleHardware else { return .incompatibleHardware }
+        try? RuntimeInstaller.recoverInterruptedReplacement(at: rootURL())
         guard FileManager.default.isExecutableFile(atPath: pythonURL().path),
               let data = try? Data(contentsOf: rootURL().appendingPathComponent("installation.json")),
               let manifest = try? JSONDecoder().decode(Installation.self, from: data),
@@ -50,6 +53,9 @@ actor BarkRuntimeManager {
     }
 
     func install() async throws {
+        guard !isInstalling else { throw CrisperRuntimeError.installationFailed(UserFacingMessage.runtimeBusy) }
+        isInstalling = true
+        defer { isInstalling = false }
         guard CrisperRuntimeManager.isCompatibleHardware else { throw BarkError.incompatibleHardware }
         guard let requirements = BarkResources.url("bark-requirements", extension: "lock"),
               let worker = BarkResources.workerURL() else { throw BarkError.resourcesMissing }
@@ -58,25 +64,13 @@ actor BarkRuntimeManager {
                   URL(fileURLWithPath: "/usr/local/bin/uv")]
             .compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         guard let uv else { throw BarkError.installerMissing }
-        let root = rootURL()
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        // Create the venv at its final location: Python console scripts contain absolute paths.
-        // The ready marker is written only after package installation and the health check pass.
-        try? FileManager.default.removeItem(at: root.appendingPathComponent("installation.json"))
-        var environment = ProcessInfo.processInfo.environment
-        environment["UV_PYTHON_INSTALL_DIR"] = root.deletingLastPathComponent().appendingPathComponent("Python").path
-        environment["UV_CACHE_DIR"] = root.deletingLastPathComponent().appendingPathComponent("Cache").path
-        try await run(uv, ["venv", "--clear", "--python", "3.12", root.appendingPathComponent(".venv").path],
-                      environment: environment, timeout: 600)
-        try await run(uv, ["pip", "install", "--python", pythonURL().path,
-                           "--require-hashes", "--only-binary", ":all:", "-r", requirements.path],
-                      environment: environment, timeout: 1_800)
-        try await run(pythonURL(), [worker.path, "--health"], environment: offlineEnvironment(), timeout: 60)
-        try JSONEncoder().encode(Installation(version: ReleaseConfig.barkRuntimeVersion))
-            .write(to: root.appendingPathComponent("installation.json"), options: .atomic)
+        try await RuntimeInstaller.install(root: rootURL(), uv: uv, requirements: requirements,
+            version: ReleaseConfig.barkRuntimeVersion, healthArguments: [worker.path, "--health"],
+            offlineEnvironment: offlineEnvironment())
     }
 
     func remove() throws {
+        guard !isInstalling else { throw CrisperRuntimeError.installationFailed(UserFacingMessage.runtimeBusy) }
         if FileManager.default.fileExists(atPath: rootURL().path) {
             try FileManager.default.removeItem(at: rootURL())
         }
@@ -144,16 +138,8 @@ enum BarkResources {
 
     static func isInstalled(_ model: SpeechModelDescriptor, at directory: URL) -> Bool {
         guard case let .huggingFaceSnapshot(repository, revision) = model.acquisition,
-              let variant = variants[model.id], variant.repository == repository, variant.revision == revision,
-              let data = try? Data(contentsOf: directory.appendingPathComponent("installation.json")),
-              let manifest = try? JSONDecoder().decode(ModelInstallation.self, from: data),
-              manifest.modelID == model.id, manifest.repository == repository,
-              manifest.revision == revision, manifest.runtimeVersion == ReleaseConfig.barkRuntimeVersion else {
-            return false
-        }
-        return variant.installedFiles.allSatisfy {
-            FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
-        }
+              let variant = variants[model.id], variant.repository == repository, variant.revision == revision else { return false }
+        return SnapshotInstallation.isInstalled(model, at: directory)
     }
 
     private struct Variant: Decodable, Sendable {

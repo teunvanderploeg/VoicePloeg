@@ -13,13 +13,22 @@ Implemented:
 - Microphone and accessibility permission flows
 - Preferred recording input device selection (with temporary switch/restore during recording)
 - Bluetooth/HFP input warning guardrail in Settings
-- 16kHz mono audio capture and normalization
+- 16kHz mono audio capture with bounded normalization gain
 - Local model catalog + on-demand model download to `~/Library/Application Support/VoicePloeg/Models`
 - Offline transcription through local `whisper-cli`
 - Optional local CrisperWhisper 2.0 intended-mode transcription on Apple Silicon
 - App-managed Python/PyTorch runtime and local small/medium/turbo/large model downloads
 - Text output through Accessibility with clipboard fallback, and direct clipboard paste for Codex and ChatGPT
 - Settings for model, hotkey, language, and `whisper-cli` path
+- Readiness checks before recording and in-memory retry after transcription failure
+- History retention controls, per-entry deletion, and separate Auto language model assignment
+- Coordinated shutdown, microphone UID preferences, idle worker unloading, and process-group cancellation
+
+Auto uses its own multilingual Whisper model in **Models by language**. Download the assigned model before recording. English-only models are available for explicit English transcription. After a backend failure, **Retry transcription** recovers the retained audio without pasting into an old editor. A new capture or app exit discards that retained recording.
+
+History defaults to the existing forty-entry behavior. In History settings, choose Off, 7 days, 30 days, or Until cleared. **Clear all transcripts** also clears the current transcript shown in the menu.
+
+Both build paths require Swift 6. Release preflight validates catalog metadata and runtime packaging; the macOS CI workflow runs the same checks. See `Docs/UPGRADES_2026-10-25.md` for upgrade details and `Docs/QA.md` for the opt-in recognition corpus.
 
 ## Project Layout
 

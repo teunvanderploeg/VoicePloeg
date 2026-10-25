@@ -1,0 +1,23 @@
+name: macOS validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install project generator
+        run: command -v xcodegen || brew install xcodegen
+      - name: Build pinned Whisper runtime
+        run: Scripts/bootstrap_whisper.sh
+      - name: Prepare runtime installer
+        run: Scripts/bootstrap_crisper_runtime.sh
+      - name: Build, test, and validate release packaging
+        run: Scripts/release_preflight.sh

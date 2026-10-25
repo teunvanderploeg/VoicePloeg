@@ -5,7 +5,7 @@
 - Launch with no permissions and verify clear state/error handling.
 - Deny microphone and verify app transitions to `Error`.
 - Grant microphone and verify recording works.
-- Deny accessibility and verify clipboard fallback still inserts text.
+- Deny Accessibility and verify recording is rejected before capture, with a recovery action in Settings.
 - Grant accessibility and verify AX insertion works in TextEdit/Notes.
 
 ## Hotkey
@@ -23,7 +23,7 @@
 - 30s dictation transcribes successfully.
 - Silence does not crash and produces empty/near-empty output.
 - Missing `whisper-cli` path produces actionable error.
-- Missing model path triggers download flow.
+- Missing or corrupt models prevent capture and point to an explicit model download in Settings.
 - Existing installations remain on `whisper.cpp` after upgrade.
 - CrisperWhisper rejects Auto language before recording starts.
 - Accepting the non-commercial license enables local model download.
@@ -43,7 +43,7 @@
 
 ## Performance
 
-- Verify model remains loaded between transcriptions.
+- Verify Bark and Crisper remain loaded between transcriptions, then unload after ten minutes idle. Whisper warms its filesystem cache and starts a new CLI per request.
 - Measure end-to-end latency for 10s and 30s recordings on Apple Silicon.
 - Monitor memory while recording up to 120s cap.
 - Verify recording automatically stops and transcribes at 120s and the timer is visible.
@@ -64,3 +64,27 @@ VOICEPLOEG_MODEL_SWITCH_SMOKE=underdog-bark-3-pro,crisper-whisper-2-turbo \
 ```
 
 This cancels twelve alternating model loads and verifies both backends can still load. The worker regression suite also checks broken pipes, concurrent requests, cancellation, and shutdown without terminating the app.
+
+## Upgrade regression checks
+
+- Select Auto and dictate Dutch with a multilingual Whisper model. Assign Crisper as Default and confirm Auto keeps its independent Whisper assignment.
+- Attempt a conflicting shortcut while idle. The previous shortcut must stay active. Hotkey editing must be disabled during recording; Escape cancels shortcut recording.
+- Disconnect or change the recording input during capture. Verify capture stops and Retry recovers already captured audio. Retry must not paste into an old editor.
+- Change the system input externally while recording, then stop. VoicePloeg must preserve the external choice. Quit during capture and verify its own temporary input change is restored.
+- Force a backend error, retry, discard, and start a new recording. Check that no audio is retained after success, discard, or quit, and that insertion failure does not offer a duplicate transcription.
+- Try Off, 7 days, 30 days and Until cleared for history. Verify expiry after relaunch, persistent per-entry deletion, and Clear all transcripts clearing the current transcript too.
+- Interrupt runtime repair and retry it. Check that the previous usable runtime remains recoverable and incomplete candidates never appear ready.
+- Inspect preparation, transcription and text delivery timings in Settings. Test a slow or unresponsive editor and confirm Accessibility timeouts permit fallback.
+
+## Offline recognition corpus
+
+With these models already installed, run:
+
+```bash
+VOICEPLOEG_OFFLINE_SMOKE_MODELS=ggml-base-q5_1,underdog-bark-3,crisper-whisper-2-medium \
+  swift test --filter OfflineBackendSmokeTests
+```
+
+The default corpus combines the vendored English JFK sample and a short synthetic Dutch fixture. It tests explicit language and Auto where supported, with raw, normalized and attenuated-then-normalized audio. Each JSON observation records model load time, inference time, duration and word error rate. These fixtures test integration and regression; they do not establish everyday dictation accuracy or compare model quality across speakers.
+
+Set `VOICEPLOEG_DICTATION_CORPUS` to an absolute path to another manifest with the same format as `Tests/Fixtures/dictation-corpus.example.json`. Audio must be nonempty 16 kHz mono WAV. Paths resolve relative to the manifest. Add real quiet/noisy speech, short words, names and domain vocabulary in English and Dutch before changing models or segmentation policies. The test never records or downloads anything.

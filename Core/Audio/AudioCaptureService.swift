@@ -38,6 +38,12 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
     private var capturedSamples: [Float] = []
     private var isRecording = false
     private var engine: AVAudioEngine?
+    private var configurationObserver: NSObjectProtocol?
+    private var interruptionHandler: (@Sendable () -> Void)?
+
+    func setInterruptionHandler(_ handler: @escaping @Sendable () -> Void) {
+        lock.withLock { interruptionHandler = handler }
+    }
 
     init(maxDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds) {
         maxSamples = Int(16_000 * maxDurationSeconds)
@@ -60,6 +66,9 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
 
     func stop() async throws -> [Float] {
         guard isRecording else { return [] }
+
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
 
         if let engine {
             engine.inputNode.removeTap(onBus: 0)
@@ -121,6 +130,13 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
         freshEngine.prepare()
         try freshEngine.start()
         engine = freshEngine
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: freshEngine, queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            let handler = self.lock.withLock { self.interruptionHandler }
+            handler?()
+        }
     }
 
     private func teardownEngine() {
@@ -199,13 +215,14 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
     static func normalize(_ samples: [Float]) -> [Float] {
         guard !samples.isEmpty else { return [] }
 
-        let mean = samples.reduce(0, +) / Float(samples.count)
-        var centered = samples.map { $0 - mean }
+        let mean = samples.reduce(Float.zero) { $0 + ($1.isFinite ? $1 : 0) } / Float(samples.count)
+        var centered = samples.map { ($0.isFinite ? $0 : 0) - mean }
 
         let maxAbs = centered.reduce(Float.zero) { max($0, abs($1)) }
         guard maxAbs > 0 else { return [] }
-        let gain = 0.95 / maxAbs
-        centered = centered.map { $0 * gain }
+        // Bound amplification to 24 dB. Do not turn microphone noise into full-scale audio.
+        let gain = min(16, 0.95 / maxAbs)
+        for index in centered.indices { centered[index] *= gain }
 
         // A later loud sample must not make quiet opening speech disappear.
         return centered

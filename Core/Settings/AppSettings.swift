@@ -6,8 +6,57 @@ struct TranscriptHistoryItem: Codable, Equatable, Identifiable {
     let createdAt: Date
 }
 
+enum TranscriptRetention: String, CaseIterable, Identifiable {
+    case off
+    case sevenDays
+    case thirtyDays
+    case untilCleared
+
+    var id: String { rawValue }
+    var days: Int? {
+        switch self {
+        case .sevenDays: return 7
+        case .thirtyDays: return 30
+        case .off, .untilCleared: return nil
+        }
+    }
+    var title: String {
+        switch self {
+        case .off: return UserFacingMessage.historyOff
+        case .sevenDays: return UserFacingMessage.historySevenDays
+        case .thirtyDays: return UserFacingMessage.historyThirtyDays
+        case .untilCleared: return UserFacingMessage.historyForever
+        }
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
+    @Published var automaticDictationModelID: String {
+        didSet { userDefaults.set(automaticDictationModelID, forKey: Keys.automaticDictationModelID) }
+    }
+
+    @Published var transcriptRetention: TranscriptRetention {
+        didSet {
+            userDefaults.set(transcriptRetention.rawValue, forKey: Keys.transcriptRetention)
+            pruneTranscriptHistory()
+        }
+    }
+
+    @Published var preferredInputDeviceUID: String? {
+        didSet { userDefaults.set(preferredInputDeviceUID, forKey: Keys.preferredInputDeviceUID) }
+    }
+
+    var pendingInputRestorationUID: String? {
+        get { userDefaults.string(forKey: Keys.pendingInputRestorationUID) }
+        set { userDefaults.set(newValue, forKey: Keys.pendingInputRestorationUID) }
+    }
+
+    var temporaryInputUID: String? {
+        get { userDefaults.string(forKey: Keys.temporaryInputUID) }
+        set { userDefaults.set(newValue, forKey: Keys.temporaryInputUID) }
+    }
+
     @Published var defaultDictationModelID: String {
         didSet { userDefaults.set(defaultDictationModelID, forKey: Keys.defaultDictationModelID) }
     }
@@ -87,6 +136,11 @@ final class AppSettings: ObservableObject {
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        automaticDictationModelID = userDefaults.string(forKey: Keys.automaticDictationModelID)
+            ?? ReleaseConfig.defaultMultilingualModelID
+        transcriptRetention = userDefaults.string(forKey: Keys.transcriptRetention)
+            .flatMap(TranscriptRetention.init(rawValue:)) ?? .untilCleared
+        preferredInputDeviceUID = userDefaults.string(forKey: Keys.preferredInputDeviceUID)
 
         defaultDictationModelID = userDefaults.string(forKey: Keys.defaultDictationModelID)
             ?? ReleaseConfig.defaultMultilingualModelID
@@ -133,11 +187,13 @@ final class AppSettings: ObservableObject {
         } else {
             transcriptHistory = []
         }
+        pruneTranscriptHistory()
     }
 
     func addTranscriptToHistory(_ text: String, maxItems: Int) {
+        pruneTranscriptHistory()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard transcriptRetention != .off, !trimmed.isEmpty, maxItems > 0 else { return }
 
         let item = TranscriptHistoryItem(
             id: UUID(),
@@ -150,12 +206,26 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    func pruneTranscriptHistory(now: Date = Date()) {
+        let cutoff = transcriptRetention.days.map { now.addingTimeInterval(-Double($0) * 86_400) }
+        let retained = transcriptRetention == .off ? [] : transcriptHistory.filter { item in
+            cutoff.map { item.createdAt >= $0 } ?? true
+        }
+        let bounded = Array(retained.prefix(ReleaseConfig.maxTranscriptHistoryItems))
+        if transcriptHistory != bounded { transcriptHistory = bounded }
+    }
+
+    func removeTranscript(id: UUID) {
+        transcriptHistory.removeAll { $0.id == id }
+    }
+
     func clearTranscriptHistory() {
         transcriptHistory.removeAll()
     }
 
     func dictationModelID(for language: String) -> String {
         switch language {
+        case "auto": return automaticDictationModelID
         case "en": return englishDictationModelID ?? defaultDictationModelID
         case "nl": return dutchDictationModelID ?? defaultDictationModelID
         default: return defaultDictationModelID
@@ -163,6 +233,11 @@ final class AppSettings: ObservableObject {
     }
 
     func migrateModelAssignmentsIfNeeded(catalog: [SpeechModelDescriptor]) {
+        let migrateAutomatic = userDefaults.string(forKey: Keys.automaticDictationModelID) == nil
+        if migrateAutomatic {
+            automaticDictationModelID = catalog.first { $0.id == defaultDictationModelID && $0.supports(language: "auto") }?.id
+                ?? ReleaseConfig.defaultMultilingualModelID
+        }
         guard userDefaults.string(forKey: Keys.defaultDictationModelID) == nil else { return }
         let current = catalog.first { $0.id == selectedModelID && $0.backend == selectedTranscriptionBackend }
         let whisper = catalog.first { $0.id == selectedWhisperModelID && $0.backend == .whisperCpp }
@@ -172,6 +247,9 @@ final class AppSettings: ObservableObject {
             ?? catalog.first { $0.supports(language: "en") && $0.supports(language: "nl") }
 
         defaultDictationModelID = multilingual?.id ?? current?.id ?? ReleaseConfig.defaultMultilingualModelID
+        if migrateAutomatic, let multilingual, multilingual.supports(language: "auto") {
+            automaticDictationModelID = multilingual.id
+        }
         if let current, current.supports(language: "en"), current.id != defaultDictationModelID {
             englishDictationModelID = current.id
         }
@@ -209,6 +287,11 @@ final class AppSettings: ObservableObject {
     }
 
     private enum Keys {
+        static let automaticDictationModelID = "settings.automaticDictationModelID"
+        static let transcriptRetention = "settings.transcriptRetention"
+        static let preferredInputDeviceUID = "settings.preferredInputDeviceUID"
+        static let pendingInputRestorationUID = "settings.pendingInputRestorationUID"
+        static let temporaryInputUID = "settings.temporaryInputUID"
         static let defaultDictationModelID = "settings.defaultDictationModelID"
         static let englishDictationModelID = "settings.englishDictationModelID"
         static let dutchDictationModelID = "settings.dutchDictationModelID"

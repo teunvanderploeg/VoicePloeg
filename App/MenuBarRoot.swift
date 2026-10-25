@@ -36,6 +36,20 @@ struct MenuBarRoot: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let message = coordinator.configurationError {
+                Text(message).font(.caption).foregroundStyle(.orange)
+            }
+
+            if coordinator.hasRetainedRecording {
+                Text(UserFacingMessage.recordingRetained).font(.caption)
+                Button(UserFacingMessage.retryTranscription) {
+                    Task { await coordinator.retryTranscription() }
+                }.disabled(!coordinator.canManageModels)
+                Button(UserFacingMessage.discardRecording) {
+                    coordinator.discardRetainedRecording()
+                }.disabled(coordinator.state.isDictationActive)
+            }
+
             if !coordinator.lastTranscript.isEmpty {
                 Text("Last transcript")
                     .font(.caption)

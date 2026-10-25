@@ -30,8 +30,12 @@ struct HotkeyRecorderView: View {
     private func startMonitoring() {
         isRecording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                stopMonitoring()
+                return nil
+            }
             let combo = HotkeyCombination.from(event: event)
-            guard combo.carbonModifiers != 0 else {
+            guard combo.isValidRecordingShortcut else {
                 return nil
             }
 

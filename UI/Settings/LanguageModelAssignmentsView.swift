@@ -8,6 +8,18 @@ struct LanguageModelAssignmentsView: View {
             languagePicker(UserFacingMessage.englishModel, language: "en", keyPath: \.englishDictationModelID)
             languagePicker(UserFacingMessage.dutchModel, language: "nl", keyPath: \.dutchDictationModelID)
 
+            Picker(UserFacingMessage.automaticModel, selection: Binding(
+                get: { coordinator.settings.automaticDictationModelID },
+                set: {
+                    coordinator.settings.automaticDictationModelID = $0
+                    coordinator.selectModelForManagement(id: $0)
+                }
+            )) {
+                ForEach(coordinator.modelManager.catalog.filter { $0.supports(language: "auto") }) { model in
+                    Text(model.displayName).tag(model.id)
+                }
+            }
+
             Picker(UserFacingMessage.defaultModel, selection: defaultBinding) {
                 ForEach(defaultModels) { model in
                     Text(model.displayName).tag(model.id)

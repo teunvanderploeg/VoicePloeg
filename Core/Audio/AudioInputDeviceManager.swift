@@ -5,6 +5,14 @@ struct AudioInputDevice: Identifiable, Equatable {
     let id: AudioDeviceID
     let name: String
     let transportType: UInt32
+    let uid: String
+
+    init(id: AudioDeviceID, name: String, transportType: UInt32, uid: String? = nil) {
+        self.id = id
+        self.name = name
+        self.transportType = transportType
+        self.uid = uid ?? "device-\(id)"
+    }
 
     var isBluetooth: Bool {
         transportType == kAudioDeviceTransportTypeBluetooth || transportType == kAudioDeviceTransportTypeBluetoothLE
@@ -78,7 +86,8 @@ final class AudioInputDeviceManager: AudioInputDeviceManaging, @unchecked Sendab
             guard hasInputChannels(deviceID) else { continue }
             let name = deviceName(deviceID) ?? "Audio Device \(deviceID)"
             let transportType = deviceTransportType(deviceID) ?? 0
-            devices.append(AudioInputDevice(id: deviceID, name: name, transportType: transportType))
+            guard let uid = stringProperty(kAudioDevicePropertyDeviceUID, deviceID: deviceID) else { continue }
+            devices.append(AudioInputDevice(id: deviceID, name: name, transportType: transportType, uid: uid))
         }
 
         return devices.sorted { lhs, rhs in
@@ -302,8 +311,12 @@ final class AudioInputDeviceManager: AudioInputDeviceManaging, @unchecked Sendab
     }
 
     private func deviceName(_ deviceID: AudioDeviceID) -> String? {
+        stringProperty(kAudioObjectPropertyName, deviceID: deviceID)
+    }
+
+    private func stringProperty(_ selector: AudioObjectPropertySelector, deviceID: AudioDeviceID) -> String? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioObjectPropertyName,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )

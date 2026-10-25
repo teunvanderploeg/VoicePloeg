@@ -72,7 +72,7 @@ final class BarkTests: XCTestCase {
         for name in BarkResources.requiredModelFiles(for: model) {
             let url = directory.appendingPathComponent(name)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data().write(to: url)
+            try Data([1]).write(to: url)
         }
         XCTAssertFalse(manager.isDownloaded(model))
         guard case let .huggingFaceSnapshot(repository, revision) = model.acquisition else { return }

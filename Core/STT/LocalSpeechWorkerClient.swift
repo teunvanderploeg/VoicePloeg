@@ -14,7 +14,7 @@ enum LocalSpeechWorkerError: Error, LocalizedError {
 }
 
 actor LocalSpeechWorkerClient {
-    private let process: Process
+    private let process: OwnedSubprocess
     private let input: FileHandle
     private let output: FileHandle
     private var isClosed = false
@@ -23,7 +23,6 @@ actor LocalSpeechWorkerClient {
     private var requestWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(pythonURL: URL, workerURL: URL, environment: [String: String]) throws {
-        let process = Process()
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         // A worker may exit between isRunning and write(). Suppress SIGPIPE on
@@ -31,14 +30,11 @@ actor LocalSpeechWorkerClient {
         guard fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
             throw LocalSpeechWorkerError.pipeSetupFailed(errno)
         }
-        process.executableURL = pythonURL
-        process.arguments = [workerURL.path, "--serve"]
-        process.environment = environment
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.standardError
-        try process.run()
-        self.process = process
+        process = try OwnedSubprocess(executable: pythonURL, arguments: [workerURL.path, "--serve"],
+            environment: environment, standardInput: inputPipe.fileHandleForReading,
+            standardOutput: outputPipe.fileHandleForWriting, standardError: .standardError)
+        try? inputPipe.fileHandleForReading.close()
+        try? outputPipe.fileHandleForWriting.close()
         input = inputPipe.fileHandleForWriting
         output = outputPipe.fileHandleForReading
     }
@@ -56,6 +52,7 @@ actor LocalSpeechWorkerClient {
         } catch {
             isClosed = true
             stopProcess()
+            await process.waitForExit(timeout: .seconds(2))
             throw error
         }
     }
@@ -70,7 +67,7 @@ actor LocalSpeechWorkerClient {
                 group.addTask { try readLine(from: output) }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                    process.killGroup()
                     throw LocalSpeechWorkerError.timedOut(timeout)
                 }
                 guard let first = try await group.next() else {
@@ -80,7 +77,7 @@ actor LocalSpeechWorkerClient {
                 return first
             }
         } onCancel: {
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            process.killGroup()
         }
         return try CrisperWorkerCodec.decode(line, expectedID: request.id)
     }
@@ -99,8 +96,10 @@ actor LocalSpeechWorkerClient {
                 CrisperWorkerRequest(id: UUID(), command: "shutdown"),
                 timeout: 5
             )
+            await process.waitForExit(timeout: .seconds(2))
         }
         stopProcess()
+        await process.waitForExit(timeout: .seconds(2))
         try? input.close()
         try? output.close()
         handlesClosed = true
@@ -111,7 +110,7 @@ actor LocalSpeechWorkerClient {
     }
 
     private func stopProcess() {
-        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        process.killGroup()
     }
 
     private func acquireRequest() async {

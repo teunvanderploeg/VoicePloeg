@@ -19,7 +19,7 @@ struct ModelPickerView: View {
         }
 
         HStack {
-            Button("Download / Activate") {
+            Button(UserFacingMessage.downloadModel) {
                 Task { await coordinator.downloadSelectedModel() }
             }
             .disabled(!coordinator.canManageModels || !canDownloadSelectedModel)

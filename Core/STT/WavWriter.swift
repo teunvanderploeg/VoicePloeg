@@ -19,7 +19,7 @@ enum WavWriter {
         var pcmSamples = [Int16]()
         pcmSamples.reserveCapacity(samples.count)
         for sample in samples {
-            let clamped = max(-1.0, min(1.0, sample))
+            let clamped = sample.isFinite ? max(-1.0, min(1.0, sample)) : 0
             let intSample = Int16(clamped * Float(Int16.max))
             pcmSamples.append(intSample.littleEndian)
         }

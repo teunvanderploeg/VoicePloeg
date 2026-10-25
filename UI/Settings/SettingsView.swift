@@ -253,6 +253,13 @@ struct SettingsView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                LabeledContent(UserFacingMessage.preparationTiming,
+                    value: String(format: "%.2f s", coordinator.lastTimings.preparation))
+                LabeledContent(UserFacingMessage.transcriptionTiming,
+                    value: String(format: "%.2f s", coordinator.lastTimings.transcription))
+                LabeledContent(UserFacingMessage.insertionTiming,
+                    value: String(format: "%.2f s", coordinator.lastTimings.insertion))
+
                 if !coordinator.lastTranscript.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Latest Transcript")
@@ -278,6 +285,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PermissionRow(title: "Microphone", granted: coordinator.permissionStatus.microphoneGranted)
                 PermissionRow(title: "Accessibility", granted: coordinator.permissionStatus.accessibilityGranted)
+
+                if !coordinator.permissionStatus.microphoneGranted {
+                    Button(UserFacingMessage.openMicrophoneSettings) {
+                        coordinator.openMicrophoneSettings()
+                    }
+                }
 
                 HStack {
                     Button("Request Accessibility Permission") {
@@ -328,10 +341,10 @@ struct SettingsView: View {
     private var inputCard: some View {
         SettingsCard(title: "Input Device", systemImage: "mic.fill.badge.plus") {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("Preferred Recording Input", selection: $coordinator.settings.preferredInputDeviceID) {
-                    Text("System Default").tag(nil as UInt32?)
+                Picker("Preferred Recording Input", selection: $coordinator.settings.preferredInputDeviceUID) {
+                    Text("System Default").tag(nil as String?)
                     ForEach(coordinator.availableInputDevices) { device in
-                        Text(device.name).tag(Optional(device.id))
+                        Text(device.name).tag(Optional(device.uid))
                     }
                 }
                 .labelsHidden()
@@ -358,7 +371,7 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
 
-                if coordinator.settings.preferredInputDeviceID != nil, coordinator.preferredInputDevice() == nil {
+                if coordinator.settings.preferredInputDeviceUID != nil, coordinator.preferredInputDevice() == nil {
                     Text("Preferred input device is not currently available.")
                         .font(.caption)
                         .foregroundStyle(.red)
@@ -410,6 +423,12 @@ struct SettingsView: View {
                 if let model = coordinator.selectedModel() {
                     LabeledContent(UserFacingMessage.activeModel, value: model.displayName)
                         .font(.caption)
+                    Text(coordinator.selectedModelReadinessMessage)
+                        .font(.caption)
+                        .foregroundStyle(coordinator.canUseSelectedBackend() ? Color.secondary : Color.orange)
+                    if let message = coordinator.preparationError {
+                        Text(message).font(.caption).foregroundStyle(.orange)
+                    }
                 }
 
                 if let model = coordinator.selectedModel(),
@@ -433,7 +452,14 @@ struct SettingsView: View {
     private var hotkeyCard: some View {
         SettingsCard(title: "Hotkey", systemImage: "keyboard.fill") {
             VStack(alignment: .leading, spacing: 10) {
-                HotkeyRecorderView(hotkey: $coordinator.settings.hotkey)
+                HotkeyRecorderView(hotkey: Binding(
+                    get: { coordinator.settings.hotkey },
+                    set: { coordinator.changeHotkey($0) }
+                ))
+                .disabled(coordinator.state.isDictationActive)
+                if let message = coordinator.configurationError {
+                    Text(message).font(.caption).foregroundStyle(.orange)
+                }
                 Text("Press once to start recording, press again to stop and transcribe.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -556,12 +582,17 @@ struct SettingsView: View {
     private var historyCard: some View {
         SettingsCard(title: "History", systemImage: "clock.arrow.circlepath") {
             VStack(alignment: .leading, spacing: 10) {
+                Picker(UserFacingMessage.historyDays, selection: $coordinator.settings.transcriptRetention) {
+                    ForEach(TranscriptRetention.allCases) { retention in
+                        Text(retention.title).tag(retention)
+                    }
+                }
                 HStack {
                     Label("\(coordinator.settings.transcriptHistory.count) saved", systemImage: "text.bubble")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Clear History") {
+                    Button(UserFacingMessage.clearTranscripts) {
                         coordinator.clearTranscriptHistory()
                         copiedTranscriptID = nil
                     }
@@ -587,6 +618,10 @@ struct SettingsView: View {
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                         Spacer()
+                                        Button(UserFacingMessage.deleteTranscript, role: .destructive) {
+                                            coordinator.settings.removeTranscript(id: item.id)
+                                        }
+                                        .controlSize(.small)
                                         Button(copiedTranscriptID == item.id ? "Copied" : "Copy") {
                                             coordinator.copyTranscriptToClipboard(item.text)
                                             copiedTranscriptID = item.id

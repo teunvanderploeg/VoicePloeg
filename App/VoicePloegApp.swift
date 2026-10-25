@@ -3,9 +3,13 @@ import AppKit
 
 @main
 struct VoicePloegApp: App {
-    @StateObject private var coordinator = AppCoordinator()
+    @NSApplicationDelegateAdaptor(VoicePloegAppDelegate.self) private var appDelegate
+    @StateObject private var coordinator: AppCoordinator
 
     init() {
+        let coordinator = AppCoordinator()
+        _coordinator = StateObject(wrappedValue: coordinator)
+        appDelegate.coordinator = coordinator
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
@@ -62,3 +66,19 @@ private struct SettingsCommands: Commands {
     }
 }
 
+
+@MainActor
+final class VoicePloegAppDelegate: NSObject, NSApplicationDelegate {
+    weak var coordinator: AppCoordinator?
+    private var isTerminating = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        Task { @MainActor in
+            await coordinator?.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}

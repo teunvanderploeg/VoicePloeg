@@ -41,7 +41,7 @@ struct SpeechModelDescriptor: Codable, Equatable, Identifiable, Sendable {
     var expectedSHA256: String? {
         guard case let .singleFile(_, sha256) = acquisition, let sha256 else { return nil }
         let normalized = sha256.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.isEmpty || normalized.uppercased() == "UNVERIFIED" {
+        if normalized.count != 64 || !normalized.allSatisfy({ $0.isHexDigit && $0.isASCII }) {
             return nil
         }
         return normalized.lowercased()
@@ -49,7 +49,7 @@ struct SpeechModelDescriptor: Codable, Equatable, Identifiable, Sendable {
 
     func supports(language: String) -> Bool {
         if language == "auto" {
-            return backend == .whisperCpp
+            return backend == .whisperCpp && languageSupport.contains("auto")
         }
         return languageSupport.contains(language)
     }
@@ -176,6 +176,7 @@ enum ModelManagerError: Error, LocalizedError {
     case checksumMissing
     case sizeMismatch
     case invalidDownloadResponse
+    case modelNotInstalled
 
     var errorDescription: String? {
         switch self {
@@ -195,6 +196,8 @@ enum ModelManagerError: Error, LocalizedError {
             return UserFacingMessage.modelSizeMismatch
         case .invalidDownloadResponse:
             return UserFacingMessage.modelDownloadFailed
+        case .modelNotInstalled:
+            return UserFacingMessage.modelNotInstalled
         case .incompleteInstallation:
             return "The selected model installation is incomplete"
         }
@@ -289,12 +292,24 @@ final class ModelManager: ObservableObject {
         guard let url = try? localURL(for: item) else { return false }
         switch item.acquisition {
         case .singleFile:
-            return fileManager.fileExists(atPath: url.path)
+            let size = (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
+            return size == item.sizeBytes && item.sizeBytes > 0
         case .huggingFaceSnapshot:
             if item.backend == .bark { return BarkResources.isInstalled(item, at: url) }
-            return fileManager.fileExists(atPath: url.appendingPathComponent("installation.json").path)
-                && fileManager.fileExists(atPath: url.appendingPathComponent("model.safetensors").path)
+            return SnapshotInstallation.isInstalled(item, at: url)
         }
+    }
+
+    /// Recording never starts a network transfer. Downloads are explicit settings actions.
+    func verifiedInstalledURL(for item: SpeechModelDescriptor) async throws -> URL {
+        guard isDownloaded(item) else { throw ModelManagerError.modelNotInstalled }
+        let url = try localURL(for: item)
+        if case .singleFile = item.acquisition {
+            try await verifier.verify(item, at: url)
+        } else {
+            try await verifier.verifySnapshot(item, at: url)
+        }
+        return url
     }
 
     func ensureModelAvailable(_ item: SpeechModelDescriptor) async throws -> URL {
@@ -330,9 +345,11 @@ final class ModelManager: ObservableObject {
         return destinationURL
     }
 
-    func removeModel(_ item: SpeechModelDescriptor) throws {
+    func removeModel(_ item: SpeechModelDescriptor) async throws {
         let url = try localURL(for: item)
-        guard fileManager.fileExists(atPath: url.path) else { return }
-        try fileManager.removeItem(at: url)
+        try await Task.detached(priority: .utility) {
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            try FileManager.default.removeItem(at: url)
+        }.value
     }
 }

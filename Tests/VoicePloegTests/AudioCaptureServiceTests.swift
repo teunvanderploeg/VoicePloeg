@@ -2,6 +2,12 @@ import XCTest
 @testable import VoicePloeg
 
 final class AudioCaptureServiceTests: XCTestCase {
+    func testMicrophoneNoiseCannotBeAmplifiedToFullScale() {
+        let normalized = AudioCaptureService.normalize([0.000001, -0.000001])
+        XCTAssertEqual(normalized[0], 0.000016, accuracy: 0.0000001)
+        XCTAssertLessThan(normalized[0], 0.001)
+    }
+
     func testNormalizationPreservesQuietSpeechBeforeLoudAudio() {
         let quietSpeech: [Float] = [0.002, -0.002, 0.002, -0.002]
         let samples = [Float](repeating: 0, count: 160) + quietSpeech + [0.8, -0.8]

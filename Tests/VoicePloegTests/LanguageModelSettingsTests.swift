@@ -3,16 +3,28 @@ import XCTest
 
 @MainActor
 final class LanguageModelSettingsTests: XCTestCase {
+    func testCrisperDefaultDoesNotBreakAutomaticLanguageSelection() throws {
+        try withDefaults { defaults in
+            let settings = AppSettings(userDefaults: defaults)
+            settings.defaultDictationModelID = "crisper-whisper-2-medium"
+            settings.migrateModelAssignmentsIfNeeded(catalog: ModelManager().catalog)
+            XCTAssertEqual(settings.dictationModelID(for: "auto"), ReleaseConfig.defaultMultilingualModelID)
+            XCTAssertEqual(settings.dictationModelID(for: "nl"), "crisper-whisper-2-medium")
+        }
+    }
+
     func testAssignmentsPersistAndResolveIndependently() throws {
         try withDefaults { defaults in
             let settings = AppSettings(userDefaults: defaults)
             settings.defaultDictationModelID = "default-model"
+            settings.automaticDictationModelID = "auto-model"
             settings.englishDictationModelID = "english-model"
             settings.dutchDictationModelID = "dutch-model"
             let restored = AppSettings(userDefaults: defaults)
             XCTAssertEqual(restored.dictationModelID(for: "en"), "english-model")
             XCTAssertEqual(restored.dictationModelID(for: "nl"), "dutch-model")
-            for language in ["auto", "de", "fr", "es"] {
+            XCTAssertEqual(restored.dictationModelID(for: "auto"), "auto-model")
+            for language in ["de", "fr", "es"] {
                 XCTAssertEqual(restored.dictationModelID(for: language), "default-model")
             }
         }
@@ -29,7 +41,7 @@ final class LanguageModelSettingsTests: XCTestCase {
             let restored = AppSettings(userDefaults: defaults)
             XCTAssertEqual(restored.dictationModelID(for: "en"), "english")
             XCTAssertEqual(restored.dictationModelID(for: "nl"), "second-default")
-            XCTAssertEqual(restored.dictationModelID(for: "auto"), "second-default")
+            XCTAssertEqual(restored.dictationModelID(for: "auto"), ReleaseConfig.defaultMultilingualModelID)
             settings.englishDictationModelID = nil
             XCTAssertEqual(settings.dictationModelID(for: "en"), "second-default")
         }

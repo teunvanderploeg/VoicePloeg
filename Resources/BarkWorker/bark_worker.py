@@ -173,7 +173,15 @@ def install_model(repository, revision, destination, model_id, runtime_version):
             # Validate the local graph and weights before publishing installation.json.
             model = load_prepared_model(temporary)
             del model
-        manifest = {"modelID": model_id, "repository": repository, "revision": revision,
+        installed_files = {}
+        for name in variant["installedFiles"]:
+            file = temporary / name
+            digest = hashlib.sha256()
+            with file.open("rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(block)
+            installed_files[name] = {"size": file.stat().st_size, "sha256": digest.hexdigest()}
+        manifest = {"files": installed_files, "modelID": model_id, "repository": repository, "revision": revision,
                     "runtimeVersion": runtime_version, "installedAt": time.time()}
         (temporary / "installation.json").write_text(json.dumps(manifest, indent=2))
         backup = destination.with_name(f".{destination.name}-previous-{os.getpid()}")

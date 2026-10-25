@@ -50,10 +50,13 @@ enum CrisperRuntimeError: Error, LocalizedError {
 }
 
 actor CrisperRuntimeManager {
+    private var isInstalling = false
     private let fileManager: FileManager
+    private let rootOverride: URL?
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, rootURL: URL? = nil) {
         self.fileManager = fileManager
+        self.rootOverride = rootURL
     }
 
     nonisolated static var isCompatibleHardware: Bool {
@@ -65,9 +68,13 @@ actor CrisperRuntimeManager {
     }
 
     func status() -> CrisperRuntimeStatus {
+        if isInstalling { return .installing }
         guard Self.isCompatibleHardware else { return .incompatibleHardware }
+        try? RuntimeInstaller.recoverInterruptedReplacement(at: runtimeRootURL())
         guard fileManager.isExecutableFile(atPath: pythonURL().path),
-              fileManager.fileExists(atPath: installationManifestURL().path) else {
+              let data = try? Data(contentsOf: installationManifestURL()),
+              let manifest = try? JSONDecoder().decode(RuntimeInstallation.self, from: data),
+              manifest.version == ReleaseConfig.crisperRuntimeVersion else {
             return .notInstalled
         }
         return .ready(version: ReleaseConfig.crisperRuntimeVersion)
@@ -79,63 +86,27 @@ actor CrisperRuntimeManager {
     }
 
     func install() async throws {
+        guard !isInstalling else { throw CrisperRuntimeError.installationFailed(UserFacingMessage.runtimeBusy) }
+        isInstalling = true
+        defer { isInstalling = false }
         guard Self.isCompatibleHardware else { throw CrisperRuntimeError.incompatibleHardware }
         guard let requirementsURL = CrisperResources.requirementsURL() else {
             throw CrisperRuntimeError.resourcesMissing
         }
         guard let uvURL = resolveUVURL() else { throw CrisperRuntimeError.uvNotFound }
 
-        let parent = runtimeRootURL().deletingLastPathComponent()
-        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        let temporary = parent.appendingPathComponent(".install-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: temporary, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: temporary) }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["UV_PYTHON_INSTALL_DIR"] = parent.appendingPathComponent("Python", isDirectory: true).path
-        environment["UV_CACHE_DIR"] = parent.appendingPathComponent("Cache", isDirectory: true).path
-
         do {
-            try await run(
-                executable: uvURL,
-                arguments: ["venv", "--python", "3.12", temporary.appendingPathComponent(".venv").path],
-                environment: environment,
-                timeout: 600
-            )
-            let temporaryPython = temporary.appendingPathComponent(".venv/bin/python")
-            try await run(
-                executable: uvURL,
-                arguments: [
-                    "pip", "install", "--python", temporaryPython.path,
-                    "--require-hashes", "-r", requirementsURL.path
-                ],
-                environment: environment,
-                timeout: 1_800
-            )
-            try await run(
-                executable: temporaryPython,
-                arguments: ["-c", "import crisperwhisper, torch; print(crisperwhisper.__version__)"],
-                environment: offlineEnvironment(),
-                timeout: 60
-            )
-
-            let manifest = RuntimeInstallationManifest(
+            try await RuntimeInstaller.install(root: runtimeRootURL(), uv: uvURL, requirements: requirementsURL,
                 version: ReleaseConfig.crisperRuntimeVersion,
-                installedAt: Date()
-            )
-            try JSONEncoder().encode(manifest).write(to: temporary.appendingPathComponent("installation.json"))
-
-            let destination = runtimeRootURL()
-            if fileManager.fileExists(atPath: destination.path) {
-                try fileManager.removeItem(at: destination)
-            }
-            try fileManager.moveItem(at: temporary, to: destination)
+                healthArguments: ["-c", "import crisperwhisper, torch; print(crisperwhisper.__version__)"],
+                offlineEnvironment: offlineEnvironment())
         } catch {
             throw CrisperRuntimeError.installationFailed(error.localizedDescription)
         }
     }
 
     func remove() throws {
+        guard !isInstalling else { throw CrisperRuntimeError.installationFailed(UserFacingMessage.runtimeBusy) }
         let root = runtimeRootURL()
         guard fileManager.fileExists(atPath: root.path) else { return }
         try fileManager.removeItem(at: root)
@@ -169,8 +140,7 @@ actor CrisperRuntimeManager {
                 environment: ProcessInfo.processInfo.environment,
                 timeout: 7_200
             )
-            guard fileManager.fileExists(atPath: destination.appendingPathComponent("installation.json").path),
-                  fileManager.fileExists(atPath: destination.appendingPathComponent("model.safetensors").path) else {
+            guard SnapshotInstallation.isInstalled(model, at: destination) else {
                 throw ModelManagerError.incompleteInstallation
             }
         } catch {
@@ -187,11 +157,13 @@ actor CrisperRuntimeManager {
         environment["DO_NOT_TRACK"] = "1"
         environment["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
         environment["TOKENIZERS_PARALLELISM"] = "false"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         return environment
     }
 
     private func runtimeRootURL() -> URL {
-        applicationSupportURL()
+        if let rootOverride { return rootOverride }
+        return applicationSupportURL()
             .appendingPathComponent("CrisperRuntime", isDirectory: true)
             .appendingPathComponent(ReleaseConfig.crisperRuntimeVersion, isDirectory: true)
     }

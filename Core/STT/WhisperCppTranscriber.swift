@@ -66,7 +66,7 @@ final class WhisperCppTranscriber: SpeechTranscribing, @unchecked Sendable {
 
         return try await worker.transcribe(
             samples: request.samples,
-            language: request.language == "auto" ? nil : request.language,
+            language: request.language,
             cliPath: cliPath,
             modelPath: request.localModelURL.path,
             timeoutSeconds: timeoutSeconds
@@ -112,7 +112,7 @@ private actor WhisperWorker {
     ) async throws -> TranscriptResult {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoicePloeg-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
         let wavURL = tempDirectory.appendingPathComponent("input.wav")
@@ -129,7 +129,7 @@ private actor WhisperWorker {
             "-nt"
         ]
 
-        if let language, language.lowercased() != "auto" {
+        if let language {
             arguments.append(contentsOf: ["-l", language])
         }
 

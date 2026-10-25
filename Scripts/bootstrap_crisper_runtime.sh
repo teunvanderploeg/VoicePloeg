@@ -8,10 +8,7 @@ DESTINATION="$ROOT_DIR/Resources/CrisperWorker/uv"
 # shellcheck source=/dev/null
 source "$VERSION_FILE"
 
-if [[ "$(uname -m)" != "arm64" ]]; then
-  printf 'CrisperWhisper runtime is supported only on Apple Silicon.\n' >&2
-  exit 1
-fi
+# The installer is packaged for Apple Silicon even when a universal app is built on Intel.
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT

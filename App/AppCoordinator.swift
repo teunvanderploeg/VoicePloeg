@@ -4,7 +4,12 @@ import Foundation
 
 @MainActor
 final class AppCoordinator: ObservableObject {
-    @Published var state: AppState = .idle
+    @Published private(set) var state: AppState = .idle
+    @Published private(set) var configurationError: String?
+    @Published private(set) var preparationError: String?
+    @Published private(set) var isPreparingModel = false
+    @Published private(set) var hasRetainedRecording = false
+    @Published private(set) var lastTimings = DictationTimings()
     @Published var permissionStatus: PermissionStatus
     @Published var accessibilityDiagnostics: AccessibilityDiagnostics
     @Published var lastTranscript: String = ""
@@ -33,7 +38,20 @@ final class AppCoordinator: ObservableObject {
     private let maxRecordingDurationSeconds: TimeInterval
     private var recordingLimitTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
-    private var previousDefaultInputDeviceID: UInt32?
+    private let inputRouteController: InputRouteController
+    private let outputTargetProvider: (@MainActor () -> pid_t?)?
+    private let idleTimeoutSeconds: TimeInterval
+    private var registeredHotkey: HotkeyCombination?
+    private var isCaptureActive = false
+    private var isShuttingDown = false
+    private var isReleasingModels = false
+    private var captureDeviceID: UInt32?
+    private var recordingModelURL: URL?
+    private var retainedRequest: TranscriptionRequest?
+    private var transcriptionTask: Task<TranscriptResult, Error>?
+    private var insertionTask: Task<TextInsertionMethod, Error>?
+    private var idleUnloadTask: Task<Void, Never>?
+    private var warmupGeneration = UUID()
     private var outputTargetProcessID: pid_t?
     private var recordingTranscriptionSelection: RecordingTranscriptionSelection?
     private var languageFeedbackTask: Task<Void, Never>?
@@ -55,9 +73,14 @@ final class AppCoordinator: ObservableObject {
         crisperRuntimeManager: CrisperRuntimeManager = CrisperRuntimeManager(),
         barkRuntimeManager: BarkRuntimeManager = BarkRuntimeManager(),
         transcriber: (any ManagedSpeechTranscribing)? = nil,
-        maxRecordingDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds
+        maxRecordingDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds,
+        idleTimeoutSeconds: TimeInterval = ReleaseConfig.modelIdleTimeoutSeconds,
+        outputTargetProvider: (@MainActor () -> pid_t?)? = nil
     ) {
         self.settings = settings
+        self.inputRouteController = InputRouteController(settings: settings, devices: audioInputDeviceManager)
+        self.idleTimeoutSeconds = idleTimeoutSeconds
+        self.outputTargetProvider = outputTargetProvider
         self.modelManager = modelManager
         settings.migrateModelAssignmentsIfNeeded(catalog: modelManager.catalog)
         self.permissionController = permissionController
@@ -92,9 +115,13 @@ final class AppCoordinator: ObservableObject {
         }
 
         settings.$hotkey
+            .dropFirst()
             .removeDuplicates()
             .sink { [weak self] hotkey in
-                self?.register(hotkey)
+                Task { @MainActor [weak self] in
+                    guard let self, self.settings.hotkey == hotkey else { return }
+                    self.changeHotkey(hotkey)
+                }
             }
             .store(in: &cancellables)
 
@@ -120,13 +147,32 @@ final class AppCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
+        settings.$automaticDictationModelID.dropFirst().sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.scheduleSelectedModelWarmup(releaseCurrentModels: true) }
+        }.store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshPermissions()
+                    self?.settings.pruneTranscriptHistory()
+                }
+            }.store(in: &cancellables)
+
+        recordingController.setInterruptionHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.isCaptureActive else { return }
+                await self.stopRecordingAndTranscribe(captureInterrupted: true)
+            }
+        }
+
         audioInputDeviceManager.setInputDeviceChangeHandler { [weak self] in
             Task { @MainActor in
                 self?.refreshInputDevices()
             }
         }
 
-        register(settings.hotkey)
+        changeHotkey(settings.hotkey)
         refreshInputDevices()
         configureMemoryPressureHandling()
         Task { [weak self] in
@@ -179,6 +225,11 @@ final class AppCoordinator: ObservableObject {
     }
 
     func toggleRecording() async {
+        guard !isShuttingDown else { return }
+        if isCaptureActive {
+            await stopRecordingAndTranscribe()
+            return
+        }
         switch state {
         case .idle, .error:
             await startRecording()
@@ -196,6 +247,19 @@ final class AppCoordinator: ObservableObject {
 
     func refreshInputDevices() {
         availableInputDevices = audioInputDeviceManager.availableInputDevices()
+        if settings.preferredInputDeviceUID == nil, let legacyID = settings.preferredInputDeviceID,
+           let device = availableInputDevices.first(where: { $0.id == legacyID }) {
+            settings.preferredInputDeviceUID = device.uid
+            settings.preferredInputDeviceID = nil
+        }
+        if !state.isDictationActive {
+            do { try inputRouteController.restore(available: availableInputDevices) }
+            catch { configurationError = UserFacingMessage.inputRestoreFailed }
+        }
+        if isCaptureActive, let captureDeviceID,
+           !availableInputDevices.contains(where: { $0.id == captureDeviceID }) {
+            Task { @MainActor [weak self] in await self?.stopRecordingAndTranscribe(captureInterrupted: true) }
+        }
 
         guard !availableInputDevices.isEmpty else {
             isWaitingForInputDevice = true
@@ -246,8 +310,8 @@ final class AppCoordinator: ObservableObject {
     }
 
     func preferredInputDevice() -> AudioInputDevice? {
-        guard let id = settings.preferredInputDeviceID else { return nil }
-        return availableInputDevices.first(where: { $0.id == id })
+        guard let uid = settings.preferredInputDeviceUID else { return nil }
+        return availableInputDevices.first(where: { $0.uid == uid })
     }
 
     func effectiveRecordingInputDevice() -> AudioInputDevice? {
@@ -285,6 +349,10 @@ final class AppCoordinator: ObservableObject {
         permissionController.openAccessibilitySettings()
     }
 
+    func openMicrophoneSettings() {
+        permissionController.openMicrophoneSettings()
+    }
+
     func copyTranscriptToClipboard(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -296,10 +364,12 @@ final class AppCoordinator: ObservableObject {
 
     func clearTranscriptHistory() {
         settings.clearTranscriptHistory()
+        lastTranscript = ""
     }
 
     var canManageModels: Bool {
-        !state.isDictationActive && !isDownloadingModel && !isInstallingCrisperRuntime && !isInstallingBarkRuntime
+        !isShuttingDown && !isReleasingModels && !isCaptureActive && !state.isDictationActive
+            && !isDownloadingModel && !isInstallingCrisperRuntime && !isInstallingBarkRuntime
     }
 
     func downloadSelectedModel() async {
@@ -310,7 +380,11 @@ final class AppCoordinator: ObservableObject {
         }
 
         isDownloadingModel = true
-        defer { isDownloadingModel = false }
+        defer {
+            isDownloadingModel = false
+            scheduleSelectedModelWarmup()
+        }
+        await cancelModelPreparation(releaseModels: true)
 
         do {
             if item.backend == .bark {
@@ -342,13 +416,13 @@ final class AppCoordinator: ObservableObject {
     func removeSelectedModel() async {
         guard canManageModels, let item = modelToManage() else { return }
         isDownloadingModel = true
-        defer { isDownloadingModel = false }
-        modelWarmupTask?.cancel()
-        modelWarmupTask = nil
-        warmingSelection = nil
-        await transcriber.releasePreloadedModels()
+        defer {
+            isDownloadingModel = false
+            scheduleSelectedModelWarmup()
+        }
+        await cancelModelPreparation(releaseModels: true)
         do {
-            try modelManager.removeModel(item)
+            try await modelManager.removeModel(item)
             if item.backend == .whisperCpp {
                 settings.activeModelPath = nil
             }
@@ -366,7 +440,11 @@ final class AppCoordinator: ObservableObject {
         guard canManageModels else { return }
         isInstallingCrisperRuntime = true
         crisperRuntimeStatus = .installing
-        defer { isInstallingCrisperRuntime = false }
+        defer {
+            isInstallingCrisperRuntime = false
+            scheduleSelectedModelWarmup()
+        }
+        await cancelModelPreparation(releaseModels: true)
         do {
             try await crisperRuntimeManager.install()
             await refreshCrisperRuntimeStatus()
@@ -381,7 +459,11 @@ final class AppCoordinator: ObservableObject {
     func removeCrisperRuntime() async {
         guard canManageModels else { return }
         isInstallingCrisperRuntime = true
-        defer { isInstallingCrisperRuntime = false }
+        defer {
+            isInstallingCrisperRuntime = false
+            scheduleSelectedModelWarmup()
+        }
+        await cancelModelPreparation(releaseModels: true)
         await transcriber.unloadCrisperModel()
         do {
             try await crisperRuntimeManager.remove()
@@ -399,11 +481,11 @@ final class AppCoordinator: ObservableObject {
         guard canManageModels else { return }
         isInstallingBarkRuntime = true
         barkRuntimeStatus = .installing
-        defer { isInstallingBarkRuntime = false }
-        modelWarmupTask?.cancel()
-        modelWarmupTask = nil
-        warmingSelection = nil
-        await transcriber.unloadBarkModel()
+        defer {
+            isInstallingBarkRuntime = false
+            scheduleSelectedModelWarmup()
+        }
+        await cancelModelPreparation(releaseModels: true)
         do {
             try await barkRuntimeManager.install()
             await refreshBarkRuntimeStatus()
@@ -418,11 +500,11 @@ final class AppCoordinator: ObservableObject {
     func removeBarkRuntime() async {
         guard canManageModels else { return }
         isInstallingBarkRuntime = true
-        defer { isInstallingBarkRuntime = false }
-        modelWarmupTask?.cancel()
-        modelWarmupTask = nil
-        warmingSelection = nil
-        await transcriber.unloadBarkModel()
+        defer {
+            isInstallingBarkRuntime = false
+            scheduleSelectedModelWarmup()
+        }
+        await cancelModelPreparation(releaseModels: true)
         do {
             try await barkRuntimeManager.remove()
             await refreshBarkRuntimeStatus()
@@ -451,15 +533,34 @@ final class AppCoordinator: ObservableObject {
     }
 
     func canUseSelectedBackend() -> Bool {
-        guard let model = selectedModel(), model.supports(language: settings.selectedLanguage) else { return false }
+        guard let model = selectedModel(), model.supports(language: settings.selectedLanguage), modelManager.isDownloaded(model) else { return false }
         if model.backend == .bark {
             guard settings.selectedLanguage == "en", case .ready = barkRuntimeStatus,
                   CrisperRuntimeManager.isCompatibleHardware else { return false }
             return modelManager.isDownloaded(model)
         }
-        guard model.backend == .crisperWhisper else { return true }
+        guard model.backend == .crisperWhisper else {
+            return WhisperCLIResolver.resolve(configuredPath: settings.whisperCLIPath) != nil
+        }
         guard settings.selectedLanguage != "auto", case .ready = crisperRuntimeStatus else { return false }
         return modelManager.isDownloaded(model)
+    }
+
+    var selectedModelReadinessMessage: String {
+        guard let model = selectedModel() else { return UserFacingMessage.selectedModelNotFound }
+        guard model.supports(language: settings.selectedLanguage) else { return UserFacingMessage.modelLanguageMismatch }
+        if isPreparingModel { return UserFacingMessage.modelPreparing }
+        if model.backend == .bark {
+            guard case .ready = barkRuntimeStatus else { return UserFacingMessage.barkRuntimeMissing }
+        }
+        if model.backend == .crisperWhisper {
+            guard case .ready = crisperRuntimeStatus else { return UserFacingMessage.crisperRuntimeMissing }
+        }
+        guard modelManager.isDownloaded(model) else { return UserFacingMessage.modelNotInstalled }
+        if model.backend == .whisperCpp, WhisperCLIResolver.resolve(configuredPath: settings.whisperCLIPath) == nil {
+            return UserFacingMessage.whisperExecutableMissing
+        }
+        return UserFacingMessage.modelReady
     }
 
     private func startRecording() async {
@@ -472,7 +573,7 @@ final class AppCoordinator: ObservableObject {
             state = .error(message: selectedModel.backend == .bark
                 ? UserFacingMessage.barkEnglishOnly
                 : settings.selectedLanguage == "auto"
-                    ? UserFacingMessage.crisperRequiresExplicitLanguage
+                    ? UserFacingMessage.autoRequiresMultilingual
                     : UserFacingMessage.modelLanguageMismatch)
             return
         }
@@ -513,13 +614,38 @@ final class AppCoordinator: ObservableObject {
             language: settings.selectedLanguage,
             whisperCLIPath: settings.whisperCLIPath
         )
-        scheduleSelectedModelWarmup()
+        idleUnloadTask?.cancel()
         captureOutputTargetApp()
         state = .starting
+        let preparationStarted = ContinuousClock.now
+        do {
+            guard permissionController.currentStatus().accessibilityGranted else {
+                throw TextOutputError.accessibilityUnavailable
+            }
+            if selectedModel.backend == .whisperCpp {
+                guard WhisperCLIResolver.resolve(configuredPath: settings.whisperCLIPath) != nil else {
+                    throw WhisperTranscriberError.whisperCLINotFound(settings.whisperCLIPath)
+                }
+            }
+            recordingModelURL = try await modelManager.verifiedInstalledURL(for: selectedModel)
+            await modelWarmupTask?.value
+            if let recordingModelURL {
+                try await transcriber.preloadModel(at: recordingModelURL, backend: selectedModel.backend)
+            }
+            lastTimings = DictationTimings(preparation: DictationTimings.seconds(preparationStarted.duration(to: .now)))
+            try Task.checkCancellation()
+            guard !isShuttingDown else { return }
+        } catch {
+            recordingTranscriptionSelection = nil
+            outputTargetProcessID = nil
+            state = .error(message: error.localizedDescription)
+            return
+        }
 
         let micGranted = await permissionController.requestMicrophoneIfNeeded()
         permissionStatus = permissionController.currentStatus()
 
+        guard !isShuttingDown else { return }
         guard micGranted else {
             recordingTranscriptionSelection = nil
             state = .error(message: UserFacingMessage.microphonePermissionDenied)
@@ -535,9 +661,10 @@ final class AppCoordinator: ObservableObject {
             }
             try applyPreferredInputDeviceIfNeeded()
             await settleAfterInputDeviceSwitchIfNeeded()
+            let captureInput = availableInputDevices.first { $0.id == audioInputDeviceManager.defaultInputDeviceID() }
             if
                 settings.warnOnBluetoothInput,
-                let effectiveInput = effectiveRecordingInputDevice(),
+                let effectiveInput = captureInput,
                 effectiveInput.isBluetooth
             {
                 recordingTranscriptionSelection = nil
@@ -545,7 +672,13 @@ final class AppCoordinator: ObservableObject {
                 state = .error(message: UserFacingMessage.bluetoothInputBlocked(effectiveInput.name))
                 return
             }
+            try Task.checkCancellation()
+            guard !isShuttingDown else { return }
+            discardRetainedRecording()
             try await recordingController.start()
+            guard !isShuttingDown else { _ = try? await recordingController.stop(); return }
+            isCaptureActive = true
+            captureDeviceID = captureInput?.id
             recordingFeedbackPlayer.playStartCue()
             state = .listening(startedAt: Date())
             scheduleRecordingLimit()
@@ -565,100 +698,116 @@ final class AppCoordinator: ObservableObject {
             } catch {
                 return
             }
-            guard let self, case .listening = self.state else { return }
+            guard let self, self.isCaptureActive else { return }
             // Clear before stopping so the automatic stop cannot cancel itself.
             self.recordingLimitTask = nil
             await self.stopRecordingAndTranscribe()
         }
     }
 
-    private func stopRecordingAndTranscribe() async {
+    private func stopRecordingAndTranscribe(captureInterrupted: Bool = false) async {
+        guard isCaptureActive else { return }
+        isCaptureActive = false
+        captureDeviceID = nil
         recordingLimitTask?.cancel()
         recordingLimitTask = nil
         state = .processing
-        defer { recordingTranscriptionSelection = nil }
-
+        defer {
+            recordingTranscriptionSelection = nil
+            recordingModelURL = nil
+            outputTargetProcessID = nil
+            scheduleSelectedModelWarmup()
+            scheduleIdleUnload()
+        }
         do {
             let samples = try await recordingController.stop()
             recordingFeedbackPlayer.playStopCue()
             restorePreviousInputDeviceIfNeeded()
-
-            guard let selection = recordingTranscriptionSelection else {
-                throw ModelManagerError.catalogNotFound
+            guard let selection = recordingTranscriptionSelection, let modelURL = recordingModelURL else {
+                throw ModelManagerError.modelNotInstalled
             }
-            let modelURL = try await resolveModelURL(selection.model)
-            let request = TranscriptionRequest(
-                samples: samples,
-                model: selection.model,
-                localModelURL: modelURL,
-                language: selection.language,
-                whisperCLIPath: selection.whisperCLIPath
-            )
-            let result = try await transcriber.transcribe(request)
-
-            lastTranscript = result.text
-            let trimmedTranscript = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedTranscript.isEmpty {
-                settings.addTranscriptToHistory(trimmedTranscript, maxItems: ReleaseConfig.maxTranscriptHistoryItems)
-                guard let outputTargetProcessID else {
-                    throw TextOutputError.targetApplicationUnavailable
-                }
-                _ = try await textOutputController.insert(
-                    result.text,
-                    targetProcessID: outputTargetProcessID
-                )
+            retainedRequest = TranscriptionRequest(samples: samples, model: selection.model,
+                localModelURL: modelURL, language: selection.language, whisperCLIPath: selection.whisperCLIPath)
+            hasRetainedRecording = !samples.isEmpty
+            if captureInterrupted {
+                state = .error(message: UserFacingMessage.inputDisconnected)
+                return
             }
-
-            outputTargetProcessID = nil
-            state = .idle
+            try await transcribeRetainedRecording(deliverToOriginalTarget: true)
         } catch {
             restorePreviousInputDeviceIfNeeded()
-            outputTargetProcessID = nil
-            state = .error(message: error.localizedDescription)
+            if !isShuttingDown { state = .error(message: error.localizedDescription) }
         }
     }
 
-    private func resolveModelURL(_ item: SpeechModelDescriptor) async throws -> URL {
-        if item.backend == .bark {
-            guard modelManager.isDownloaded(item) else { throw BarkError.modelMissing }
-            return try modelManager.localURL(for: item)
-        }
-        if item.backend == .crisperWhisper {
-            guard modelManager.isDownloaded(item) else { throw CrisperTranscriberError.modelMissing }
-            return try modelManager.localURL(for: item)
-        }
-        let localURL = try await modelManager.ensureModelAvailable(item)
-        settings.activeModelPath = localURL.path
-        return localURL
-    }
-
-    private func register(_ hotkey: HotkeyCombination) {
+    func retryTranscription() async {
+        guard canManageModels, retainedRequest != nil else { return }
+        state = .processing
+        defer { scheduleSelectedModelWarmup(); scheduleIdleUnload() }
         do {
-            try hotkeyService.register(hotkey)
+            try await transcribeRetainedRecording(deliverToOriginalTarget: false)
         } catch {
-            state = .error(message: error.localizedDescription)
+            if !isShuttingDown { state = .error(message: error.localizedDescription) }
+        }
+    }
+
+    func discardRetainedRecording() {
+        retainedRequest = nil
+        hasRetainedRecording = false
+    }
+
+    private func transcribeRetainedRecording(deliverToOriginalTarget: Bool) async throws {
+        guard let request = retainedRequest else { return }
+        let transcriber = self.transcriber
+        let transcriptionStarted = ContinuousClock.now
+        let task = Task { try await transcriber.transcribe(request) }
+        transcriptionTask = task
+        defer { transcriptionTask = nil }
+        let result = try await task.value
+        lastTimings.transcription = DictationTimings.seconds(transcriptionStarted.duration(to: .now))
+        guard !isShuttingDown else { return }
+        // Once recognized, insertion failure must never cause a second transcription/paste.
+        discardRetainedRecording()
+        lastTranscript = result.text
+        let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            settings.addTranscriptToHistory(trimmed, maxItems: ReleaseConfig.maxTranscriptHistoryItems)
+            if deliverToOriginalTarget {
+                guard let outputTargetProcessID else { throw TextOutputError.targetApplicationUnavailable }
+                let insertionStarted = ContinuousClock.now
+                defer { lastTimings.insertion = DictationTimings.seconds(insertionStarted.duration(to: .now)) }
+                let output = textOutputController
+                let insertion = Task { try await output.insert(result.text, targetProcessID: outputTargetProcessID) }
+                insertionTask = insertion
+                defer { insertionTask = nil }
+                _ = try await insertion.value
+            }
+        }
+        state = .idle
+    }
+
+    func changeHotkey(_ hotkey: HotkeyCombination) {
+        guard hotkey != registeredHotkey else { return }
+        if state.isDictationActive || isCaptureActive {
+            configurationError = UserFacingMessage.hotkeyDuringRecording
+            if let registeredHotkey { settings.hotkey = registeredHotkey }
+            return
+        }
+        do {
+            guard hotkey.isValidRecordingShortcut else { throw GlobalHotkeyError.invalidCombination }
+            try hotkeyService.register(hotkey)
+            registeredHotkey = hotkey
+            configurationError = hotkeyService.registrationWarning
+            if settings.hotkey != hotkey { settings.hotkey = hotkey }
+        } catch {
+            configurationError = error.localizedDescription
+            if let registeredHotkey, settings.hotkey != registeredHotkey { settings.hotkey = registeredHotkey }
         }
     }
 
     private func applyPreferredInputDeviceIfNeeded() throws {
-        previousDefaultInputDeviceID = nil
-
-        guard let preferredID = settings.preferredInputDeviceID else {
-            try recoverDefaultInputDeviceIfNeeded()
-            return
-        }
-        guard availableInputDevices.contains(where: { $0.id == preferredID }) else {
-            try recoverDefaultInputDeviceIfNeeded(prefersBuiltIn: true)
-            return
-        }
-
-        let currentID = audioInputDeviceManager.defaultInputDeviceID()
-        if currentID != preferredID {
-            if let currentID, availableInputDevices.contains(where: { $0.id == currentID }) {
-                previousDefaultInputDeviceID = currentID
-            }
-            try audioInputDeviceManager.setDefaultInputDeviceID(preferredID)
-        }
+        if preferredInputDevice() == nil { try recoverDefaultInputDeviceIfNeeded() }
+        try inputRouteController.begin(preferred: preferredInputDevice(), available: availableInputDevices)
     }
 
     private func recoverDefaultInputDeviceIfNeeded(prefersBuiltIn: Bool = false) throws {
@@ -673,7 +822,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func settleAfterInputDeviceSwitchIfNeeded() async {
-        guard previousDefaultInputDeviceID != nil else { return }
+        guard inputRouteController.hasPendingRestoration else { return }
 
         // Route changes (especially Bluetooth/HFP) are asynchronous in CoreAudio.
         let switchedToBluetooth = preferredInputDevice()?.isBluetooth == true
@@ -691,13 +840,13 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func restorePreviousInputDeviceIfNeeded() {
-        guard let previousDefaultInputDeviceID else { return }
-        defer { self.previousDefaultInputDeviceID = nil }
-        try? audioInputDeviceManager.setDefaultInputDeviceID(previousDefaultInputDeviceID)
+        do { try inputRouteController.restore(available: audioInputDeviceManager.availableInputDevices()) }
+        catch { configurationError = UserFacingMessage.inputRestoreFailed }
     }
 
     private func captureOutputTargetApp() {
         outputTargetProcessID = nil
+        if let outputTargetProvider { outputTargetProcessID = outputTargetProvider(); return }
         let selfPID = ProcessInfo.processInfo.processIdentifier
         guard
             let frontmost = NSWorkspace.shared.frontmostApplication,
@@ -714,15 +863,10 @@ final class AppCoordinator: ObservableObject {
             queue: .global(qos: .utility)
         )
         source.setEventHandler(handler: Self.makeMemoryPressureHandler { [weak self] in
-            guard let self else { return }
-            guard !self.state.isDictationActive else { return }
-            let previousWarmup = self.modelWarmupTask
-            self.modelWarmupTask?.cancel()
-            self.modelWarmupTask = nil
-            self.warmingSelection = nil
-            await previousWarmup?.value
-            guard !self.state.isDictationActive else { return }
-            await self.transcriber.releasePreloadedModels()
+            guard let self, self.canManageModels else { return }
+            self.isReleasingModels = true
+            defer { self.isReleasingModels = false }
+            await self.cancelModelPreparation(releaseModels: true)
         })
         source.resume()
         memoryPressureSource = source
@@ -739,7 +883,8 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func scheduleSelectedModelWarmup(releaseCurrentModels: Bool = false) {
-        guard !state.isDictationActive else { return }
+        guard canManageModels else { return }
+        idleUnloadTask?.cancel()
         if releaseCurrentModels {
             modelWarmupTask?.cancel()
             warmingSelection = nil
@@ -763,25 +908,84 @@ final class AppCoordinator: ObservableObject {
         previousWarmup?.cancel()
         warmingSelection = selection
         let transcriber = self.transcriber
+        let generation = UUID()
+        warmupGeneration = generation
         modelWarmupTask = Task { [weak self] in
             if releaseCurrentModels {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             }
             await previousWarmup?.value
-            guard !Task.isCancelled, let self, !self.state.isDictationActive else { return }
+            guard !Task.isCancelled, let self, self.canManageModels else { return }
+            self.isPreparingModel = true
+            self.preparationError = nil
+            defer {
+                if self.warmupGeneration == generation {
+                    self.isPreparingModel = false
+                    self.modelWarmupTask = nil
+                    self.scheduleIdleUnload()
+                }
+            }
             if releaseCurrentModels { await transcriber.releasePreloadedModels() }
             guard !Task.isCancelled, runtimeReady, let model, let modelURL else { return }
-            try? await transcriber.preloadModel(at: modelURL, backend: model.backend)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard self.warmingSelection == selection else { return }
-                self.modelWarmupTask = nil
+            do {
+                _ = try await self.modelManager.verifiedInstalledURL(for: model)
+                guard !Task.isCancelled, self.canManageModels else { return }
+                try await transcriber.preloadModel(at: modelURL, backend: model.backend)
+            } catch is CancellationError {
+                return
+            } catch {
+                if self.warmupGeneration == generation { self.preparationError = error.localizedDescription }
             }
         }
     }
+    private func cancelModelPreparation(releaseModels: Bool) async {
+        idleUnloadTask?.cancel()
+        warmupGeneration = UUID()
+        let previous = modelWarmupTask
+        modelWarmupTask = nil
+        warmingSelection = nil
+        isPreparingModel = false
+        previous?.cancel()
+        await previous?.value
+        if releaseModels { await transcriber.releasePreloadedModels() }
+    }
+
+    private func scheduleIdleUnload() {
+        idleUnloadTask?.cancel()
+        guard canManageModels, !isPreparingModel else { return }
+        let timeout = idleTimeoutSeconds
+        idleUnloadTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(timeout)) } catch { return }
+            guard let self, self.canManageModels, !self.isPreparingModel else { return }
+            self.idleUnloadTask = nil
+            await self.cancelModelPreparation(releaseModels: true)
+        }
+    }
+
+    func shutdown() async {
+        guard !isShuttingDown else { return }
+        isShuttingDown = true
+        recordingLimitTask?.cancel()
+        inputRecoveryTask?.cancel()
+        languageFeedbackTask?.cancel()
+        idleUnloadTask?.cancel()
+        transcriptionTask?.cancel()
+        insertionTask?.cancel()
+        if isCaptureActive {
+            isCaptureActive = false
+            _ = try? await recordingController.stop()
+        }
+        restorePreviousInputDeviceIfNeeded()
+        _ = await transcriptionTask?.result
+        _ = await insertionTask?.result
+        discardRetainedRecording()
+        await cancelModelPreparation(releaseModels: true)
+        state = .idle
+    }
+
 }
 
-private struct RecordingTranscriptionSelection {
+private struct RecordingTranscriptionSelection: Sendable {
     let model: SpeechModelDescriptor
     let language: String
     let whisperCLIPath: String

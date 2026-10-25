@@ -1,0 +1,32 @@
+{
+  "cases": [
+    {
+      "id": "jfk-english",
+      "wavPath": "../../Vendor/whisper.cpp/samples/jfk.wav",
+      "language": "en",
+      "reference": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country",
+      "maximumWordErrorRate": 0.15
+    },
+    {
+      "id": "jfk-auto",
+      "wavPath": "../../Vendor/whisper.cpp/samples/jfk.wav",
+      "language": "auto",
+      "reference": "And so my fellow Americans ask not what your country can do for you ask what you can do for your country",
+      "maximumWordErrorRate": 0.15
+    },
+    {
+      "id": "synthetic-dutch-nl",
+      "wavPath": "synthetic-dutch.wav",
+      "language": "nl",
+      "reference": "Dit is een lokale test van automatische taalherkenning. De microfoon blijft op deze computer en de tekst wordt in het Nederlands geschreven.",
+      "maximumWordErrorRate": 0.15
+    },
+    {
+      "id": "synthetic-dutch-auto",
+      "wavPath": "synthetic-dutch.wav",
+      "language": "auto",
+      "reference": "Dit is een lokale test van automatische taalherkenning. De microfoon blijft op deze computer en de tekst wordt in het Nederlands geschreven.",
+      "maximumWordErrorRate": 0.15
+    }
+  ]
+}

@@ -35,7 +35,7 @@ System Settings > Privacy & Security > Accessibility
 
 ## CrisperWhisper Runtime
 
-- Run `Scripts/bootstrap_crisper_runtime.sh` before archiving so the pinned `uv` installer is embedded.
+- Run `Scripts/bootstrap_crisper_runtime.sh` before archiving so the pinned Apple Silicon `uv` installer is embedded, including when building the universal app on Intel.
 - CrisperWhisper is Apple Silicon-only and installs its Python/PyTorch environment under Application Support on demand.
 - The runtime and model downloads are the only networked operations. Inference explicitly enables Hugging Face and Transformers offline modes.
 - Standard CrisperWhisper weights use the Nyra Health Non-Commercial Research License. Do not commercially distribute them without a separate agreement.

@@ -21,15 +21,15 @@ final class ModelCatalogItemTests: XCTestCase {
     }
 
     func testExpectedSHA256NormalizesValue() {
-        let item = makeItem(sha256: "  AABBCC  ")
-        XCTAssertEqual(item.expectedSHA256, "aabbcc")
+        let item = makeItem(sha256: "  " + String(repeating: "AABBCCDD", count: 8) + "  ")
+        XCTAssertEqual(item.expectedSHA256, String(repeating: "aabbccdd", count: 8))
     }
 
     @MainActor
-    func testEnglishModelsRejectDutchButAllowAuto() throws {
+    func testEnglishModelsRejectDutchAndAuto() throws {
         let model = try XCTUnwrap(ModelManager().model(id: "ggml-base.en-q5_1", backend: .whisperCpp))
         XCTAssertTrue(model.supports(language: "en"))
-        XCTAssertTrue(model.supports(language: "auto"))
+        XCTAssertFalse(model.supports(language: "auto"))
         XCTAssertFalse(model.supports(language: "nl"))
     }
 

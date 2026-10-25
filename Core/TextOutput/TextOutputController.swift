@@ -27,7 +27,7 @@ enum TextOutputError: Error, LocalizedError {
         case .emptyText:
             return "No text to insert"
         case .accessibilityUnavailable:
-            return "Accessibility permission is missing"
+            return UserFacingMessage.accessibilityRequired
         case .insertionFailed:
             return "Unable to insert text into focused app"
         case .targetApplicationUnavailable:
@@ -193,6 +193,7 @@ final class ActiveAppTextOutputController: TextOutputController {
 
     private func verifiedFocusedElement(targetProcessID: pid_t) throws -> AXUIElement {
         let targetApplication = AXUIElementCreateApplication(targetProcessID)
+        AXUIElementSetMessagingTimeout(targetApplication, 0.2)
         var focusedObject: CFTypeRef?
         let focusedStatus = AXUIElementCopyAttributeValue(
             targetApplication,
@@ -208,6 +209,7 @@ final class ActiveAppTextOutputController: TextOutputController {
             throw TextOutputError.targetFocusUnavailable
         }
         let focusedElement = unsafeDowncast(focusedObject, to: AXUIElement.self)
+        AXUIElementSetMessagingTimeout(focusedElement, 0.2)
 
         var focusedProcessID = pid_t(0)
         let processStatus = AXUIElementGetPid(focusedElement, &focusedProcessID)

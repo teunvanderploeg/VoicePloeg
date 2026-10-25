@@ -23,7 +23,7 @@ enum SubprocessRunner {
         try Task.checkCancellation()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoicePloeg-Process-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let outputURL = directory.appendingPathComponent("stdout")
@@ -37,28 +37,24 @@ enum SubprocessRunner {
             try? error.close()
         }
 
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.environment = environment
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        defer {
-            // Also covers cancellation during sleep. Do not leave a worker using
-            // deleted temporary audio or installation files after returning.
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-            }
-        }
+        let process = try OwnedSubprocess(executable: executable, arguments: arguments,
+            environment: environment, standardOutput: output, standardError: error)
 
         let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while process.isRunning {
+        do {
+            while process.isRunning {
+                try Task.checkCancellation()
+                guard ContinuousClock.now < deadline else { throw SubprocessError.timedOut }
+                try await Task.sleep(for: .milliseconds(50))
+            }
             try Task.checkCancellation()
-            guard ContinuousClock.now < deadline else { throw SubprocessError.timedOut }
-            try await Task.sleep(for: .milliseconds(50))
+        } catch {
+            process.killGroup()
+            await process.waitForExit(timeout: .seconds(2))
+            throw error
         }
-        try Task.checkCancellation()
+        // A successful launcher must not leave background installers behind either.
+        process.killGroup()
         return SubprocessResult(
             status: process.terminationStatus,
             standardOutput: try logTail(at: outputURL),

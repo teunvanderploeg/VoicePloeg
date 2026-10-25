@@ -24,6 +24,14 @@ protocol PermissionController {
     func currentStatus() -> PermissionStatus
     func accessibilityDiagnostics() -> AccessibilityDiagnostics
     func openAccessibilitySettings()
+    func openMicrophoneSettings()
+}
+
+extension PermissionController {
+    func openMicrophoneSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else { return }
+        NSWorkspace.shared.open(url)
+    }
 }
 
 final class SystemPermissionController: PermissionController {

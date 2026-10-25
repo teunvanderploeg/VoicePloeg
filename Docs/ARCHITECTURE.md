@@ -1,47 +1,49 @@
 # Architecture
 
-## Runtime Flow
+## Recording lifecycle
 
-1. Global hotkey event arrives in `GlobalHotkeyService`.
-2. `AppCoordinator` toggles recording/transcription state.
-3. `AudioCaptureService` captures mic audio with `AVAudioEngine` and converts to 16kHz mono PCM float.
-4. `SpeechTranscriptionService` routes the immutable request to the selected local backend:
-   - `WhisperCppTranscriber` writes a temporary WAV and invokes local `whisper-cli`.
-   - `CrisperWhisperTranscriber` sends the temporary WAV to a persistent local Python/PyTorch worker using newline-delimited JSON.
-5. Transcription result is inserted by `ActiveAppTextOutputController`:
-   - Clipboard paste for Codex and ChatGPT composers
-   - Accessibility insertion first in other apps, with clipboard paste fallback
-   - Paste shortcuts use the macOS session event stream after verifying the original app is frontmost
+`AppCoordinator` owns canonical UI state. Configuration and model preparation errors are separate from recording state. Capture ownership also has an explicit flag so configuration errors cannot bypass the recording limit or enable model maintenance during capture.
 
-## Core Interfaces
+1. A menu action or registered Carbon shortcut requests recording.
+2. The coordinator freezes the language, model and CLI configuration, checks Accessibility, verifies installed model files, and prepares the backend. This step never downloads models.
+3. Microphone permission and input routing are checked before `AudioCaptureService` starts its AVAudioEngine.
+4. Capture converts hardware-native audio to 16 kHz mono float samples and caps the buffer at two minutes. DC removal and peak normalization use a maximum gain of 16 to avoid amplifying background noise to full scale.
+5. Stop restores the input route and creates an immutable `TranscriptionRequest`.
+6. `SpeechTranscriptionService` routes the request to Whisper CLI, the persistent Crisper Python/PyTorch worker, or the persistent English-only Bark MLX worker.
+7. Recognized text becomes the current transcript and is saved according to the history retention preference before editor insertion.
 
-- `RecordingController`
-- `SpeechTranscribing`
-- `TextOutputController`
-- `PermissionController`
+Experimental live dictation was rolled back. The current app uses stop-and-transcribe.
 
-These interfaces isolate implementation details so ML backend and output strategy can be swapped without UI rewrites.
+## Readiness and recovery
 
-## CrisperWhisper 2.0
+Missing or corrupt models and unavailable executables/runtimes fail before capture. Downloads are explicit settings actions. Auto has its own multilingual Whisper assignment and passes `-l auto`; English-only models cannot advertise Auto support. English, Dutch and Default assignments remain independent.
 
-- Optional Apple Silicon backend; `whisper.cpp` remains the default and fallback.
-- The app provisions a pinned Python 3.12 environment under Application Support.
-- Small, medium, turbo, and large snapshots are downloaded at immutable Hugging Face revisions.
-- Inference receives a local snapshot path and forces `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`.
-- Audio is never uploaded and no inference API or API key is used.
-- Intended/clean mode is fixed and an explicit language is required.
-- The active model remains warm until backend/model change, memory pressure, app exit, or ten minutes idle.
+A failed transcription retains at most one recording in memory for Retry or Discard. Retry keeps the recovered transcript available to copy and respects the history preference. It does not insert into an editor whose focus may have changed. A successful transcription clears retained audio even if subsequent insertion fails. Starting a new capture or quitting discards retained audio.
 
-## Key Tradeoffs (Current)
+Audio-engine configuration changes and input-device loss stop capture and retain the captured samples for recovery. The macOS application delegate joins transcription and clipboard delivery during termination, stops capture, restores input routing, and releases workers.
 
-- Chosen: `whisper-cli` process invocation in v1
-- Benefit: reliable, low integration risk, easy updates
-- Cost: process startup overhead and no partial streaming yet
+## Input routing
 
-- Chosen: stop-and-transcribe
-- Benefit: simpler state model and predictable CPU/memory
-- Cost: no continuous live partial transcript
+Preferences identify devices by CoreAudio UID and resolve the current numeric ID. `InputRouteController` journals the previous and temporary UIDs before changing the system default. It restores only while the system still uses VoicePloeg's temporary selection, preserving external user changes. The journal permits recovery after an interrupted session. Routing is still system-wide; app-scoped routing needs hardware validation before replacing this mechanism.
 
-- Chosen: AX insertion + clipboard fallback
-- Benefit: best compatibility across apps
-- Cost: some secure apps/fields may reject both methods
+## Text output
+
+Codex and ChatGPT composers use their paste handler. Other applications attempt Accessibility insertion before clipboard fallback. The original application must be verified before delivery. Accessibility messages have bounded timeouts. Clipboard transactions preserve all available items and types, leave the transcript available for one second after posting, and restore the old clipboard only when the user has not copied something else.
+
+## Model and worker ownership
+
+Whisper preloading reads the model into the filesystem cache. Each transcription still starts a new CLI process and initializes inference. Bark and Crisper retain a worker with loaded weights. Obsolete preparation is cancelled and joined before asset maintenance. Preparation errors are visible independently of recording errors. Idle workers unload after ten minutes; memory pressure and app termination also release them.
+
+`OwnedSubprocess` uses a separate POSIX process group so cancellation and timeout stop descendants as well as the launcher. Exit polling uses nonblocking `waitpid`. Temporary process logs cannot fill an unread pipe. Worker requests are serialized, pipe writes suppress SIGPIPE, and acknowledged shutdown allows a bounded graceful exit before forced cleanup.
+
+## Installation and integrity
+
+Whisper downloads require HTTPS, exact size, and SHA-256 verification. Snapshot manifests identify model, repository, immutable revision, runtime version, and required files. New Bark and Crisper installations record installed file sizes and hashes. Crisper validates its model offline before publication. Existing snapshots without hashes retain compatibility but must pass identity, required-file, JSON, and safetensors-header validation; repair creates the stronger manifest.
+
+Both Python runtimes install into a candidate relocatable environment. Imports are checked before publication and again at the final path. A previous installation remains available for rollback, including recovery from interrupted publication. Installation status is not ready until the manifest is committed. Inference forces Hugging Face and Transformers offline modes. Temporary audio directories are accessible only to their owner.
+
+## Preferences and validation
+
+`AppSettings` owns preferences. History can be off, retained for seven or thirty days, or kept until cleared, with a forty-entry cap. Expiration runs on launch, app activation, and history insertion. Individual deletion persists. Clear all transcripts also clears the current in-memory transcript.
+
+SwiftPM and Xcode both compile in Swift 6 mode. Release preflight runs builds, tests, semantic catalog validation, Python worker tests, project generation, and unsigned Release packaging. The GitHub workflow runs the same preflight on macOS. Preparation, transcription, and delivery timings appear in Settings; the opt-in offline corpus test records normalization variants, recognition error, and model timings separately.
