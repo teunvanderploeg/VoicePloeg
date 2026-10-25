@@ -8,10 +8,6 @@ struct TranscriptHistoryItem: Codable, Equatable, Identifiable {
 
 @MainActor
 final class AppSettings: ObservableObject {
-    @Published var liveDictationEnabled: Bool {
-        didSet { userDefaults.set(liveDictationEnabled, forKey: Keys.liveDictationEnabled) }
-    }
-
     @Published var defaultDictationModelID: String {
         didSet { userDefaults.set(defaultDictationModelID, forKey: Keys.defaultDictationModelID) }
     }
@@ -91,7 +87,6 @@ final class AppSettings: ObservableObject {
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        liveDictationEnabled = userDefaults.bool(forKey: Keys.liveDictationEnabled)
 
         defaultDictationModelID = userDefaults.string(forKey: Keys.defaultDictationModelID)
             ?? ReleaseConfig.defaultMultilingualModelID
@@ -214,7 +209,6 @@ final class AppSettings: ObservableObject {
     }
 
     private enum Keys {
-        static let liveDictationEnabled = "settings.liveDictationEnabled"
         static let defaultDictationModelID = "settings.defaultDictationModelID"
         static let englishDictationModelID = "settings.englishDictationModelID"
         static let dutchDictationModelID = "settings.dutchDictationModelID"

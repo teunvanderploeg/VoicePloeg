@@ -14,26 +14,6 @@ enum ReleaseConfig {
 }
 
 enum UserFacingMessage {
-    static let liveDictation = "Live dictation"
-    static let liveDictationDescription = "Insert phrases as you speak. Pause briefly between phrases. Audio stays on your Mac."
-    static let liveDictationHint = "Start with the hotkey while your cursor is in a text field. Typing, clicking, or switching apps pauses insertion for the rest of the recording. The transcript is saved in History."
-    static let liveModelHint = "Speed depends on your model. Smaller Whisper models and Bark are good starting points. Auto detects the language separately for each phrase; select English or Dutch for more consistent results."
-    static let liveUnavailable = "Live dictation is unavailable with this recording or text output service. Turn it off in Settings to use normal dictation."
-    static let liveUnverifiableField = "Live dictation needs a text field with a readable cursor position and no selected text. Place the cursor in a supported field and start with the hotkey, or turn off Live dictation."
-    static let liveTargetChanged = "Live insertion paused because the app, cursor, or text changed. Continue speaking, then stop to find the transcript in History."
-    static let liveInsertionUnconfirmed = "Live insertion paused because the editor did not confirm the last phrase. Check the text already inserted. The full transcript will be saved in History."
-    static let liveListening = "Live · Listening"
-    static let liveTranscribing = "Live · Transcribing"
-    static let liveCatchingUp = "Live · Catching up"
-    static let livePaused = "Live · Insertion paused"
-    static let liveFinishing = "Finishing dictation…"
-    static let liveStop = "Stop dictation"
-    static let liveCancel = "Cancel remaining dictation"
-    static let liveTranscript = "Current transcript"
-    static let liveHotkeyHint = "Press once to start. Pause briefly to insert a phrase. Press again to finish the remaining words."
-    static func liveTranscriptionFailed(_ message: String) -> String {
-        "Live transcription stopped: \(message) Any completed phrases were saved in History."
-    }
     static let languageModelsTitle = "Models by language"
     static let englishModel = "English"
     static let dutchModel = "Dutch"

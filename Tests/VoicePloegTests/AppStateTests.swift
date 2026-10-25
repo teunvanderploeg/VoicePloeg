@@ -2,16 +2,6 @@ import XCTest
 @testable import VoicePloeg
 
 final class AppStateTests: XCTestCase {
-    func testLiveAndFinishingStatesRemainActiveIncludingWhenInsertionIsPaused() {
-        for status in [LiveDictationStatus.listening, .transcribing, .catchingUp, .paused(message: "Moved")] {
-            let state = AppState.liveListening(startedAt: .now, status: status)
-            XCTAssertTrue(state.isDictationActive)
-            XCTAssertEqual(state.title, status.title)
-        }
-        XCTAssertTrue(AppState.finishingLive.isDictationActive)
-        XCTAssertEqual(AppState.finishingLive.title, UserFacingMessage.liveFinishing)
-    }
-
     func testIdleStateMetadata() {
         XCTAssertEqual(AppState.idle.title, "Idle")
         XCTAssertEqual(AppState.idle.symbolName, "mic")

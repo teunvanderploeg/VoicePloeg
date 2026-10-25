@@ -12,7 +12,7 @@ enum AudioCaptureError: Error, LocalizedError {
     }
 }
 
-final class AudioCaptureService: NSObject, LiveRecordingController, @unchecked Sendable {
+final class AudioCaptureService: NSObject, RecordingController, @unchecked Sendable {
     private final class ConverterInputState: @unchecked Sendable {
         let buffer: AVAudioPCMBuffer
         var didFeed = false
@@ -36,7 +36,6 @@ final class AudioCaptureService: NSObject, LiveRecordingController, @unchecked S
     private var converterInputSampleRate: Double = 0
     private var converterInputChannelCount: AVAudioChannelCount = 0
     private var capturedSamples: [Float] = []
-    private var liveReadOffset = 0
     private var isRecording = false
     private var engine: AVAudioEngine?
 
@@ -50,7 +49,6 @@ final class AudioCaptureService: NSObject, LiveRecordingController, @unchecked S
 
         lock.withLock {
             capturedSamples.removeAll(keepingCapacity: true)
-            liveReadOffset = 0
             converter = nil
             converterInputSampleRate = 0
             converterInputChannelCount = 0
@@ -81,14 +79,6 @@ final class AudioCaptureService: NSObject, LiveRecordingController, @unchecked S
         }
 
         return Self.normalize(output)
-    }
-
-    func drainLiveSamples() async -> [Float] {
-        lock.withLock {
-            let samples = Array(capturedSamples[liveReadOffset...])
-            liveReadOffset = capturedSamples.count
-            return samples
-        }
     }
 
     private func startEngineWithRetry() async throws {

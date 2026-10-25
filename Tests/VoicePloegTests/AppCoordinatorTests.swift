@@ -62,91 +62,6 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertTrue(met, "Timed out waiting for model warmup")
     }
 
-    func testLiveModeFlushesFinalWordsAndSavesOneHistoryEntryWithoutFinalPaste() async throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanup() }
-        fixture.settings.liveDictationEnabled = true
-        await fixture.transcriber.setText("Final phrase.")
-        await fixture.coordinator.toggleRecording()
-        guard case .liveListening = fixture.coordinator.state else { return XCTFail("Expected live recording") }
-        await fixture.recorder.feedLiveSpeech()
-        await fixture.coordinator.toggleRecording()
-        XCTAssertEqual(fixture.coordinator.state, .idle)
-        XCTAssertEqual(fixture.output.live.insertions, ["Final phrase."])
-        XCTAssertEqual(fixture.output.normalInsertions, 0)
-        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["Final phrase."])
-        XCTAssertTrue(fixture.output.live.closed)
-    }
-
-    func testLiveOutputIsPinnedBeforePermissionAndClosedWhenPermissionIsDenied() async throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanup() }
-        fixture.settings.liveDictationEnabled = true
-        fixture.permissions.granted = false
-        await fixture.coordinator.toggleRecording()
-        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.microphonePermissionDenied))
-        XCTAssertTrue(fixture.output.live.closed)
-        let starts = await fixture.recorder.startCount
-        XCTAssertEqual(starts, 0)
-    }
-
-    func testUnsupportedLiveFieldIsRejectedBeforeRecording() async throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanup() }
-        fixture.settings.liveDictationEnabled = true
-        fixture.output.liveSupported = false
-        await fixture.coordinator.toggleRecording()
-        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.liveUnverifiableField))
-        XCTAssertEqual(fixture.permissions.requestCount, 0)
-        let starts = await fixture.recorder.startCount
-        XCTAssertEqual(starts, 0)
-    }
-
-    func testLiveFocusFailureKeepsTranscriptInHistoryAndDoesNotUseNormalPaste() async throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanup() }
-        fixture.settings.liveDictationEnabled = true
-        await fixture.transcriber.setText("Recover this.")
-        await fixture.coordinator.toggleRecording()
-        fixture.output.live.focusValid = false
-        await fixture.recorder.feedLiveSpeech()
-        await fixture.coordinator.toggleRecording()
-        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["Recover this."])
-        XCTAssertTrue(fixture.output.live.insertions.isEmpty)
-        XCTAssertEqual(fixture.output.normalInsertions, 0)
-        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.liveTargetChanged))
-    }
-
-    func testLiveModeUsesRecordingLanguageEvenIfPreferenceChangesBeforeStop() async throws {
-        let fixture = try Fixture(includeMultilingualModel: true)
-        defer { fixture.cleanup() }
-        fixture.settings.liveDictationEnabled = true
-        await fixture.coordinator.toggleRecording()
-        fixture.coordinator.cycleLanguage()
-        fixture.settings.liveDictationEnabled = false
-        await fixture.recorder.feedLiveSpeech()
-        await fixture.coordinator.toggleRecording()
-        let requests = await fixture.transcriber.requests
-        XCTAssertEqual(requests.map(\.language), ["en"])
-        XCTAssertEqual(requests.map(\.model.id), ["test-model"])
-        XCTAssertEqual(fixture.coordinator.state, .idle)
-    }
-
-    func testLiveRecordingAutomaticallyStopsAtLimit() async throws {
-        let fixture = try Fixture(duration: 0.05)
-        defer { fixture.cleanup() }
-        fixture.settings.liveDictationEnabled = true
-        await fixture.coordinator.toggleRecording()
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while fixture.coordinator.state.isDictationActive, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertEqual(fixture.coordinator.state, .idle)
-        let stops = await fixture.recorder.stopCount
-        XCTAssertEqual(stops, 1)
-        XCTAssertTrue(fixture.output.live.closed)
-    }
-
     func testLanguageShortcutSelectsAssignedModelAndBackendImmediately() throws {
         let fixture = try Fixture(includeMultilingualModel: true)
         defer { fixture.cleanup() }
@@ -297,7 +212,6 @@ private final class Fixture {
     let permissions = TestPermissions()
     let recorder = TestRecording()
     let transcriber = TestTranscriber()
-    let output = TestOutput()
     let coordinator: AppCoordinator
 
     init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false) throws {
@@ -334,13 +248,12 @@ private final class Fixture {
             modelManager: ModelManager(modelsDirectoryURL: directory, catalog: catalog),
             permissionController: permissions,
             recordingController: recorder,
-            textOutputController: output,
+            textOutputController: TestOutput(),
             hotkeyService: TestHotkeys(),
             audioInputDeviceManager: TestDevices(),
             recordingFeedbackPlayer: TestFeedback(),
             transcriber: transcriber,
-            maxRecordingDurationSeconds: duration,
-            outputTargetProvider: { 42 }
+            maxRecordingDurationSeconds: duration
         )
     }
 
@@ -381,12 +294,9 @@ private final class TestPermissions: PermissionController {
     func openAccessibilitySettings() {}
 }
 
-private actor TestRecording: LiveRecordingController {
+private actor TestRecording: RecordingController {
     var startCount = 0
     var stopCount = 0
-    private var liveSamples: [Float] = []
-    func feedLiveSpeech() { liveSamples += (0 ..< 8_000).map { $0.isMultiple(of: 2) ? 0.1 : -0.1 } }
-    func drainLiveSamples() -> [Float] { defer { liveSamples = [] }; return liveSamples }
     func start() { startCount += 1 }
     func stop() -> [Float] { stopCount += 1; return [] }
 }
@@ -433,27 +343,9 @@ private actor TestTranscriber: ManagedSpeechTranscribing {
 
 @MainActor
 private final class TestOutput: TextOutputController {
-    let live = CoordinatorLiveOutput()
-    var liveSupported = true
-    var normalInsertions = 0
-    func makeLiveSession(targetProcessID: pid_t, hotkey: HotkeyCombination) throws -> any LiveTextOutputSession {
-        guard liveSupported else { throw LiveDictationError.unverifiableField }
-        return live
-    }
     func insert(_ text: String, targetProcessID: pid_t) throws -> TextInsertionMethod {
-        normalInsertions += 1
         throw TextOutputError.insertionFailed
     }
-}
-
-@MainActor
-private final class CoordinatorLiveOutput: LiveTextOutputSession {
-    var insertions: [String] = []
-    var focusValid = true
-    var closed = false
-    func validate() throws { if !focusValid { throw LiveDictationError.targetChanged } }
-    func insert(_ text: String) throws { try validate(); insertions.append(text) }
-    func close() { closed = true }
 }
 
 private final class TestHotkeys: GlobalHotkeyManaging {

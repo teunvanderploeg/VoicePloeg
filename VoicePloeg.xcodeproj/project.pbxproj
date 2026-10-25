@@ -25,7 +25,6 @@
 		60163847FDE6726BAEB5FB2E /* bark_mlx.py in Resources */ = {isa = PBXBuildFile; fileRef = 1DCADE46AAF2E235538E9A0F /* bark_mlx.py */; };
 		6AE59E526F84AC18B9B0E610 /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E4640783CA610FF6D48892 /* ModelManager.swift */; };
 		6C06C010EC2D1EC5375B7CC6 /* worker.py in Resources */ = {isa = PBXBuildFile; fileRef = A0765DB23C2C6632F61D8CBE /* worker.py */; };
-		7105C3548A23A82D20CE35D3 /* LiveDictationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0E51B9F2A01F9997EF5544 /* LiveDictationSession.swift */; };
 		7493A000EBB7BEC7E3D8411F /* MenuBarRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3FABD855D34542534AD67FF /* MenuBarRoot.swift */; };
 		76F6EE4A78113D8E514DA86F /* SubprocessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2738C42F40B004ACC95F5613 /* SubprocessRunner.swift */; };
 		808FA27167DBBC4F47AE64DE /* WhisperCppTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94DE2D9DD19CF6196A733BF8 /* WhisperCppTranscriber.swift */; };
@@ -43,7 +42,6 @@
 		BB0EE50D8252D201A8A2FDA2 /* CrisperWorkerProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */; };
 		BD231371E06F751DE99A485D /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B05282460DE472F3255325 /* AppCoordinator.swift */; };
 		C11002C31D6044A50D29998F /* SpeechTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */; };
-		C28115A84EB0BB74352A6438 /* LivePhraseSegmenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DEE5ACF92576BBB3314D09D /* LivePhraseSegmenter.swift */; };
 		C40C0599878D1FFE72885BC4 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5244A4DD06A4145224E508 /* AppSettings.swift */; };
 		C5D6EC394218D57701CE1CED /* BARK_PRO_NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = F099CD068AFD67E958FFABFB /* BARK_PRO_NOTICE */; };
 		CBFD695D8E9A06DAAB2300EC /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C1A6124ABA66EE1B659BE7 /* AppState.swift */; };
@@ -54,7 +52,6 @@
 		DE9C02CF03968E434E049DF0 /* BarkTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDB64D666E67FC004A657E4 /* BarkTranscriber.swift */; };
 		E1651EFF2A69321A5C6B53AF /* WhisperBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = DDDBEFB553763A550421BD01 /* WhisperBridge.mm */; };
 		E501526CAF544B930CA0DFDE /* BarkRuntimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7160C95F266602067CC815 /* BarkRuntimeManager.swift */; };
-		E546D49492D4C13B1CEB6E08 /* FocusedLiveTextOutputSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BADCD128DA8E565B9D4C871 /* FocusedLiveTextOutputSession.swift */; };
 		E903A5CAE2C5A58F73B3B865 /* LanguageModelAssignmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8DF7D987E7D826CDED8079 /* LanguageModelAssignmentsView.swift */; };
 		EAD16CAB3A1C81720EE48770 /* bark-model-files.json in Resources */ = {isa = PBXBuildFile; fileRef = D48B3EC8413A80D2AEF18707 /* bark-model-files.json */; };
 		EF7C9D7C66B61762B23EF42D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191628BD5A5273B7DF6D4D42 /* SettingsView.swift */; };
@@ -66,12 +63,10 @@
 		0DF03C958913CA24981F9339 /* PermissionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionController.swift; sourceTree = "<group>"; };
 		191628BD5A5273B7DF6D4D42 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1C81595F096E568C71F853BE /* ModelPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPickerView.swift; sourceTree = "<group>"; };
-		1D0E51B9F2A01F9997EF5544 /* LiveDictationSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDictationSession.swift; sourceTree = "<group>"; };
 		1DCADE46AAF2E235538E9A0F /* bark_mlx.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bark_mlx.py; sourceTree = "<group>"; };
 		222AEBE4EEE8A6FBA0F2A2D7 /* SpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriber.swift; sourceTree = "<group>"; };
 		2738C42F40B004ACC95F5613 /* SubprocessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubprocessRunner.swift; sourceTree = "<group>"; };
 		276690DA04C8B7EB344B4521 /* bark_worker.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bark_worker.py; sourceTree = "<group>"; };
-		2BADCD128DA8E565B9D4C871 /* FocusedLiveTextOutputSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedLiveTextOutputSession.swift; sourceTree = "<group>"; };
 		2EA18EF1D0257584840C8DAC /* VoicePloegApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePloegApp.swift; sourceTree = "<group>"; };
 		390EE47A2461F7AD190F01BB /* requirements.lock */ = {isa = PBXFileReference; path = requirements.lock; sourceTree = "<group>"; };
 		3ACCB7B9A7EDB31BA949603D /* requirements.in */ = {isa = PBXFileReference; path = requirements.in; sourceTree = "<group>"; };
@@ -83,7 +78,6 @@
 		5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionService.swift; sourceTree = "<group>"; };
 		59A1F32AAC7F28666896306F /* VoicePloeg.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoicePloeg.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrisperWorkerProtocol.swift; sourceTree = "<group>"; };
-		5DEE5ACF92576BBB3314D09D /* LivePhraseSegmenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePhraseSegmenter.swift; sourceTree = "<group>"; };
 		6FE3EB51CD6A580E3DF6FD3C /* VoicePloeg.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VoicePloeg.entitlements; sourceTree = "<group>"; };
 		7303FB7D3775900DC9C0334A /* CrisperWhisperTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrisperWhisperTranscriber.swift; sourceTree = "<group>"; };
 		74B05282460DE472F3255325 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
@@ -138,7 +132,6 @@
 		0A2E6E021E6CF3903EB4395A /* TextOutput */ = {
 			isa = PBXGroup;
 			children = (
-				2BADCD128DA8E565B9D4C871 /* FocusedLiveTextOutputSession.swift */,
 				F783264B5352F69867FE9122 /* TextOutputController.swift */,
 			);
 			path = TextOutput;
@@ -199,7 +192,6 @@
 			children = (
 				4BD1B399FBC8C2812D9D9BE7 /* AudioCaptureService.swift */,
 				B5D18E7A326A3EF96DBC401A /* AudioInputDeviceManager.swift */,
-				5DEE5ACF92576BBB3314D09D /* LivePhraseSegmenter.swift */,
 				CA2FA4A32267590F6A2731BA /* RecordingController.swift */,
 			);
 			path = Audio;
@@ -279,7 +271,6 @@
 				971939EA2AE885A05B4C9B91 /* CrisperRuntimeManager.swift */,
 				7303FB7D3775900DC9C0334A /* CrisperWhisperTranscriber.swift */,
 				5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */,
-				1D0E51B9F2A01F9997EF5544 /* LiveDictationSession.swift */,
 				7BBD2604735BE224476FDE7E /* LocalSpeechWorkerClient.swift */,
 				222AEBE4EEE8A6FBA0F2A2D7 /* SpeechTranscriber.swift */,
 				5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */,
@@ -461,12 +452,9 @@
 				44118B4EB5D90042E87A4CB9 /* CrisperRuntimeManager.swift in Sources */,
 				0D04A8DAE64CC811A7BF4C0D /* CrisperWhisperTranscriber.swift in Sources */,
 				BB0EE50D8252D201A8A2FDA2 /* CrisperWorkerProtocol.swift in Sources */,
-				E546D49492D4C13B1CEB6E08 /* FocusedLiveTextOutputSession.swift in Sources */,
 				27F904A4C4DDD2CD9A5974AF /* GlobalHotkeyService.swift in Sources */,
 				9F981DDB292A3ECC27FFAF44 /* HotkeyRecorderView.swift in Sources */,
 				E903A5CAE2C5A58F73B3B865 /* LanguageModelAssignmentsView.swift in Sources */,
-				7105C3548A23A82D20CE35D3 /* LiveDictationSession.swift in Sources */,
-				C28115A84EB0BB74352A6438 /* LivePhraseSegmenter.swift in Sources */,
 				14562A90A61BCE011DD6EFEC /* LocalSpeechWorkerClient.swift in Sources */,
 				7493A000EBB7BEC7E3D8411F /* MenuBarRoot.swift in Sources */,
 				48E09392C8977294CF9392D3 /* ModelFileVerifier.swift in Sources */,
