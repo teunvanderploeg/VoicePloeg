@@ -11,6 +11,18 @@ enum TextInsertionMethod: String {
 @MainActor
 protocol TextOutputController {
     func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod
+    func beginLiveInsertion(targetProcessID: pid_t) throws
+    func insertLive(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod
+}
+
+extension TextOutputController {
+    func beginLiveInsertion(targetProcessID: pid_t) throws {
+        throw TextOutputError.targetFocusUnavailable
+    }
+
+    func insertLive(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
+        throw TextOutputError.targetFocusUnavailable
+    }
 }
 
 enum TextOutputError: Error, LocalizedError {
@@ -21,6 +33,7 @@ enum TextOutputError: Error, LocalizedError {
     case targetActivationFailed
     case targetFocusUnavailable
     case shortcutKeysHeld
+    case liveTextFieldRequired
 
     var errorDescription: String? {
         switch self {
@@ -38,6 +51,8 @@ enum TextOutputError: Error, LocalizedError {
             return "The original target app no longer has a verified text focus. The transcript was saved in History."
         case .shortcutKeysHeld:
             return UserFacingMessage.releaseShortcutKeys
+        case .liveTextFieldRequired:
+            return UserFacingMessage.liveTextFieldRequired
         }
     }
 }
@@ -105,6 +120,53 @@ enum TextInsertionTransaction {
 }
 
 final class ActiveAppTextOutputController: TextOutputController {
+    private var liveFocusedElement: AXUIElement?
+
+    func beginLiveInsertion(targetProcessID: pid_t) throws {
+        liveFocusedElement = nil
+        guard AXIsProcessTrusted() else { throw TextOutputError.accessibilityUnavailable }
+        let element: AXUIElement
+        do {
+            element = try verifiedFocusedElement(targetProcessID: targetProcessID)
+        } catch {
+            throw TextOutputError.liveTextFieldRequired
+        }
+        var role: CFTypeRef?
+        var subrole: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        _ = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
+        guard [kAXTextAreaRole, kAXTextFieldRole, kAXComboBoxRole].contains(role as? String ?? ""),
+              subrole as? String != kAXSecureTextFieldSubrole else {
+            throw TextOutputError.liveTextFieldRequired
+        }
+        liveFocusedElement = element
+    }
+
+    func insertLive(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw TextOutputError.emptyText
+        }
+        guard AXIsProcessTrusted() else { throw TextOutputError.accessibilityUnavailable }
+        try verifyLiveFocus(targetProcessID: targetProcessID)
+        try await waitForShortcutRelease()
+        // Paste invokes browser/composer input handlers and preserves the leading
+        // separator between phrases. Never activate an app during live dictation.
+        try await ClipboardPasteTransaction.paste(
+            text,
+            pasteboard: .general,
+            verifyTarget: { try self.verifyLiveFocus(targetProcessID: targetProcessID) },
+            postPaste: { try Self.postPaste() }
+        )
+        return .clipboardPaste
+    }
+
+    private func verifyLiveFocus(targetProcessID: pid_t) throws {
+        guard let liveFocusedElement,
+              CFEqual(liveFocusedElement, try verifiedFocusedElement(targetProcessID: targetProcessID)) else {
+            throw TextOutputError.targetFocusUnavailable
+        }
+    }
+
     func insert(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

@@ -217,6 +217,7 @@ struct SettingsView: View {
 
     private var recordingPage: some View {
         VStack(alignment: .leading, spacing: 12) {
+            liveDictationCard
             inputCard
             hotkeyCard
         }
@@ -224,6 +225,7 @@ struct SettingsView: View {
 
     private var transcriptionPage: some View {
         VStack(alignment: .leading, spacing: 12) {
+            liveDictationCard
             languageCard
             languageModelsCard
             speechModelCard
@@ -460,7 +462,25 @@ struct SettingsView: View {
                 if let message = coordinator.configurationError {
                     Text(message).font(.caption).foregroundStyle(.orange)
                 }
-                Text("Press once to start recording, press again to stop and transcribe.")
+                Text(UserFacingMessage.dictationHotkeyHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var liveDictationCard: some View {
+        SettingsCard(title: UserFacingMessage.liveDictationTitle, systemImage: "text.cursor") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(UserFacingMessage.liveDictationToggle, isOn: $coordinator.settings.liveDictationEnabled)
+                    .toggleStyle(.switch)
+                    .disabled(coordinator.state.isDictationActive)
+                Text(UserFacingMessage.liveDictationDescription)
+                    .font(.callout)
+                Text(UserFacingMessage.liveDictationHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(UserFacingMessage.liveDictationLatency)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

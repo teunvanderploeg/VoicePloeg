@@ -15,6 +15,18 @@ enum ReleaseConfig {
 }
 
 enum UserFacingMessage {
+    static let liveDictationTitle = "Live dictation"
+    static let liveDictationToggle = "Insert text while I speak"
+    static let liveDictationDescription = "Adds each phrase after a short pause. Longer speech is split about every 12 seconds. Press your hotkey again to finish the last phrase."
+    static let liveDictationHelp = "Click a text field before starting with the hotkey. Stay in that field while speaking. Output pauses if the original field is no longer focused when text is ready."
+    static let liveDictationLatency = "Runs locally with the model assigned to your language. Smaller Whisper models usually respond sooner. Speed depends on your Mac and model."
+    static let liveDictationListening = "Live dictation is listening for your next phrase."
+    static let liveTextFieldRequired = "Click an editable text field in another app, then start live dictation with your hotkey. Password fields are not supported."
+    static let liveDictationStop = "Finish dictation"
+    static let liveTranscriptTitle = "Live transcript"
+    static let liveOutputPaused = "Text output paused because the text field or input became unavailable. Keep speaking, then stop and use Copy transcript to recover the full text."
+    static let liveOutputSaved = "Live text output paused. Use Copy transcript to recover the full text. It is also saved in History when history is enabled."
+    static let dictationHotkeyHelp = "Press once to start, then again to finish. Live dictation adds phrases while you speak."
     static let openMicrophoneSettings = "Open microphone settings"
     static func languageHotkeyRegistrationFailed(_ status: Int32) -> String {
         "The language shortcut could not be registered (error \(status)). Use the menu to switch languages."

@@ -13,6 +13,7 @@
 		1561B0CD59A9A7BA19A4DE78 /* BARK_PLUS_NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = A458BEDEA8329741D41EBE54 /* BARK_PLUS_NOTICE */; };
 		1714C2B0C43E31A8A75CE7E7 /* VoicePloegApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA18EF1D0257584840C8DAC /* VoicePloegApp.swift */; };
 		19DCF321FB05BB16E91D4D3B /* ModelPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C81595F096E568C71F853BE /* ModelPickerView.swift */; };
+		1C48305C2876F569AD1CCE1B /* LiveDictationBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5997472AE445C2CAE49CBFA3 /* LiveDictationBuffer.swift */; };
 		27F904A4C4DDD2CD9A5974AF /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBB2DBD3E6356969488ADD0 /* GlobalHotkeyService.swift */; };
 		36A1EC7891A4ED1E23C99189 /* WhisperCLIResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEC8B4154FC0874F2A37FA9 /* WhisperCLIResolver.swift */; };
 		370A1CC446427285693AB5D7 /* uv in Resources */ = {isa = PBXBuildFile; fileRef = F5B82096CE802CBDA54624AA /* uv */; };
@@ -82,6 +83,7 @@
 		4C7160C95F266602067CC815 /* BarkRuntimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarkRuntimeManager.swift; sourceTree = "<group>"; };
 		51E4640783CA610FF6D48892 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		5589BBCBAD7E4EE7C207237E /* SpeechTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionService.swift; sourceTree = "<group>"; };
+		5997472AE445C2CAE49CBFA3 /* LiveDictationBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDictationBuffer.swift; sourceTree = "<group>"; };
 		59A1F32AAC7F28666896306F /* VoicePloeg.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoicePloeg.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrisperWorkerProtocol.swift; sourceTree = "<group>"; };
 		61F9DB34E27CB9594715194F /* InputRouteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputRouteController.swift; sourceTree = "<group>"; };
@@ -283,6 +285,7 @@
 				971939EA2AE885A05B4C9B91 /* CrisperRuntimeManager.swift */,
 				7303FB7D3775900DC9C0334A /* CrisperWhisperTranscriber.swift */,
 				5A74EFF5BDAAF8F4460DC978 /* CrisperWorkerProtocol.swift */,
+				5997472AE445C2CAE49CBFA3 /* LiveDictationBuffer.swift */,
 				7BBD2604735BE224476FDE7E /* LocalSpeechWorkerClient.swift */,
 				F2DA5D7D8A4146ECBB98D7CD /* RuntimeInstaller.swift */,
 				222AEBE4EEE8A6FBA0F2A2D7 /* SpeechTranscriber.swift */,
@@ -472,6 +475,7 @@
 				9F981DDB292A3ECC27FFAF44 /* HotkeyRecorderView.swift in Sources */,
 				D9F9A0EFD0D3EDA2ACA440F3 /* InputRouteController.swift in Sources */,
 				E903A5CAE2C5A58F73B3B865 /* LanguageModelAssignmentsView.swift in Sources */,
+				1C48305C2876F569AD1CCE1B /* LiveDictationBuffer.swift in Sources */,
 				14562A90A61BCE011DD6EFEC /* LocalSpeechWorkerClient.swift in Sources */,
 				7493A000EBB7BEC7E3D8411F /* MenuBarRoot.swift in Sources */,
 				48E09392C8977294CF9392D3 /* ModelFileVerifier.swift in Sources */,

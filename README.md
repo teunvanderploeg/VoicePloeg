@@ -79,6 +79,31 @@ Both build paths require Swift 6. Release preflight validates catalog metadata a
    - Accessibility
 7. Open settings and click `Download / Activate` for a model.
 
+## Live dictation
+
+Enable **Insert text while I speak** in Settings under **Recording** or **Transcription**.
+Click an editable field in your target app, then press the recording hotkey. VoicePloeg
+inserts phrases after approximately 0.66 seconds of quiet plus model processing time.
+Continuous speech is split into windows of at most 12 seconds. Press the hotkey again
+to stop capture, finish queued phrases, and insert the final words. The two-minute
+recording limit still applies. The default remains transcription after stopping.
+
+Live dictation uses the model and language selected when recording starts. It works
+locally with Whisper, Bark, and CrisperWhisper. Larger models can fall behind speech;
+audio stays queued in order. The menu shows the transcript as phrases finish.
+
+Each phrase goes through the target editor's paste handler, including Firefox and
+ChatGPT, so the editor receives its usual input events. The clipboard is restored
+after each paste unless you copy something else while it is pending. Text already
+inserted is never rewritten or replayed on Stop. Live dictation does not press Return
+or submit a message.
+
+Live output stays attached to the original focused text field and never activates an
+app. If a focus check or insertion fails, further output stops for that recording.
+Transcription continues, and the combined transcript is available from Copy transcript
+when you stop. It is also saved once in History when history is enabled. Password fields are rejected;
+editors that do not expose an editable Accessibility element cannot use live mode.
+
 ## Notes on Whisper Integration
 
 `WhisperCppTranscriber` currently executes local `whisper-cli` as a child process.

@@ -124,6 +124,10 @@ final class AppSettings: ObservableObject {
         didSet { userDefaults.set(warnOnBluetoothInput, forKey: Keys.warnOnBluetoothInput) }
     }
 
+    @Published var liveDictationEnabled: Bool {
+        didSet { userDefaults.set(liveDictationEnabled, forKey: Keys.liveDictationEnabled) }
+    }
+
     @Published var transcriptHistory: [TranscriptHistoryItem] {
         didSet {
             if let encoded = try? JSONEncoder().encode(transcriptHistory) {
@@ -169,6 +173,7 @@ final class AppSettings: ObservableObject {
             preferredInputDeviceID = nil
         }
         warnOnBluetoothInput = userDefaults.object(forKey: Keys.warnOnBluetoothInput) as? Bool ?? true
+        liveDictationEnabled = userDefaults.bool(forKey: Keys.liveDictationEnabled)
 
         if
             let hotkeyData = userDefaults.data(forKey: Keys.hotkey),
@@ -307,6 +312,7 @@ final class AppSettings: ObservableObject {
         static let whisperCLIPath = "settings.whisperCLIPath"
         static let preferredInputDeviceID = "settings.preferredInputDeviceID"
         static let warnOnBluetoothInput = "settings.warnOnBluetoothInput"
+        static let liveDictationEnabled = "settings.liveDictationEnabled"
         static let transcriptHistory = "settings.transcriptHistory"
     }
 }

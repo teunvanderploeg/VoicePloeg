@@ -1,5 +1,19 @@
 # QA Checklist
 
+## Live dictation
+
+- Enable live dictation, relaunch, and verify the preference persists. Disable it and verify the existing stop-then-transcribe behavior.
+- Start with the hotkey in an empty text field. Speak two sentences with pauses. Verify the first appears while recording and Stop inserts only the final words.
+- In Firefox textarea and contenteditable fields, and in the ChatGPT app composer, test existing text, selected text, Dutch accents, repeated sentences, and several phrases. Verify the editor recognizes the draft and no message is submitted.
+- Switch apps or focus another field before a phrase finishes. Verify no focus is stolen, output pauses, and the full transcript is available in History after Stop.
+- Speak without pauses for over 12 seconds. Verify bounded chunks continue in order.
+- Stop during model inference or a pending paste. Verify every phrase appears at most once and the final tail is drained.
+- Try a slow model with several queued phrases and verify recording remains responsive.
+- Record silence and short background clicks. Verify no model requests or History entries.
+- Verify the automatic two-minute stop drains live audio and saves one History entry.
+- Start live mode from Settings or a password field and verify the message directs you to an editable field.
+- Verify clipboard restoration and that copying during a pending paste preserves the newly copied content.
+
 ## Permissions
 
 - Launch with no permissions and verify clear state/error handling.

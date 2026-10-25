@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class AppSettingsBackendTests: XCTestCase {
+    func testLiveDictationDefaultsOffAndPersistsIndependently() {
+        let suiteName = "AppSettingsLiveTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = AppSettings(userDefaults: defaults)
+        XCTAssertFalse(settings.liveDictationEnabled)
+        settings.liveDictationEnabled = true
+        let restored = AppSettings(userDefaults: defaults)
+        XCTAssertTrue(restored.liveDictationEnabled)
+        XCTAssertEqual(restored.selectedLanguage, settings.selectedLanguage)
+        restored.liveDictationEnabled = false
+        XCTAssertFalse(AppSettings(userDefaults: defaults).liveDictationEnabled)
+    }
+
     func testMigratesLegacyModelAndKeepsWhisperDefault() {
         let suiteName = "AppSettingsBackendTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

@@ -13,6 +13,9 @@ final class AppCoordinator: ObservableObject {
     @Published var permissionStatus: PermissionStatus
     @Published var accessibilityDiagnostics: AccessibilityDiagnostics
     @Published var lastTranscript: String = ""
+    @Published private(set) var isLiveDictating = false
+    @Published private(set) var liveTranscript = ""
+    @Published private(set) var liveOutputMessage: String?
     @Published var isDownloadingModel = false
     @Published var isInstallingBarkRuntime = false
     @Published var barkRuntimeStatus: CrisperRuntimeStatus = .notInstalled
@@ -60,6 +63,12 @@ final class AppCoordinator: ObservableObject {
     private var warmingSelection: ModelWarmupSelection?
     private var isWaitingForInputDevice = false
     private var memoryPressureSource: DispatchSourceMemoryPressure?
+    private var liveTask: Task<Void, Never>?
+    private var liveBuffer = LiveDictationBuffer()
+    private var liveAccumulator = LiveTranscriptAccumulator()
+    private var liveModelURL: URL?
+    private var liveOutputError: Error?
+    private var livePendingChunks: [[Float]] = []
 
     init(
         settings: AppSettings,
@@ -612,7 +621,8 @@ final class AppCoordinator: ObservableObject {
         recordingTranscriptionSelection = RecordingTranscriptionSelection(
             model: selectedModel,
             language: settings.selectedLanguage,
-            whisperCLIPath: settings.whisperCLIPath
+            whisperCLIPath: settings.whisperCLIPath,
+            liveDictation: settings.liveDictationEnabled
         )
         idleUnloadTask?.cancel()
         captureOutputTargetApp()
@@ -653,6 +663,11 @@ final class AppCoordinator: ObservableObject {
         }
 
         do {
+            if recordingTranscriptionSelection?.liveDictation == true {
+                guard let outputTargetProcessID else { throw TextOutputError.liveTextFieldRequired }
+                try textOutputController.beginLiveInsertion(targetProcessID: outputTargetProcessID)
+                liveModelURL = recordingModelURL
+            }
             refreshInputDevices()
             guard !availableInputDevices.isEmpty else {
                 recordingTranscriptionSelection = nil
@@ -681,6 +696,9 @@ final class AppCoordinator: ObservableObject {
             captureDeviceID = captureInput?.id
             recordingFeedbackPlayer.playStartCue()
             state = .listening(startedAt: Date())
+            if recordingTranscriptionSelection?.liveDictation == true {
+                startLiveDictation()
+            }
             scheduleRecordingLimit()
         } catch {
             recordingTranscriptionSelection = nil
@@ -719,6 +737,14 @@ final class AppCoordinator: ObservableObject {
             scheduleSelectedModelWarmup()
             scheduleIdleUnload()
         }
+        if isLiveDictating {
+            if captureInterrupted {
+                liveOutputError = TextOutputError.targetFocusUnavailable
+                liveOutputMessage = UserFacingMessage.liveOutputPaused
+            }
+            await finishLiveDictation(captureInterrupted: captureInterrupted)
+            return
+        }
         do {
             let samples = try await recordingController.stop()
             recordingFeedbackPlayer.playStopCue()
@@ -738,6 +764,133 @@ final class AppCoordinator: ObservableObject {
             restorePreviousInputDeviceIfNeeded()
             if !isShuttingDown { state = .error(message: error.localizedDescription) }
         }
+    }
+
+    private func startLiveDictation() {
+        isLiveDictating = true
+        liveTranscript = ""
+        liveOutputMessage = nil
+        liveOutputError = nil
+        livePendingChunks = []
+        liveAccumulator = LiveTranscriptAccumulator()
+        liveBuffer = LiveDictationBuffer()
+        liveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !self.isShuttingDown, !Task.isCancelled, case .listening = self.state {
+                let chunks = await self.liveBuffer.read(from: self.recordingController)
+                do {
+                    try await self.transcribeLiveChunks(chunks)
+                } catch {
+                    // Finish retries the untranscribed chunk once, and drains the tail.
+                    Task { @MainActor [weak self] in
+                        guard let self, !self.isShuttingDown, case .listening = self.state else { return }
+                        await self.stopRecordingAndTranscribe()
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+        }
+    }
+
+    private func transcribeLiveChunks(_ chunks: [[Float]]) async throws {
+        guard let selection = recordingTranscriptionSelection, let liveModelURL else {
+            throw ModelManagerError.catalogNotFound
+        }
+        for (index, samples) in chunks.enumerated() {
+            let result: TranscriptResult
+            do {
+                try Task.checkCancellation()
+                guard !isShuttingDown else { return }
+                let request = TranscriptionRequest(
+                    samples: samples, model: selection.model, localModelURL: liveModelURL,
+                    language: selection.language, whisperCLIPath: selection.whisperCLIPath
+                )
+                let transcriber = self.transcriber
+                let started = ContinuousClock.now
+                let task = Task { try await transcriber.transcribe(request) }
+                transcriptionTask = task
+                defer { transcriptionTask = nil }
+                result = try await task.value
+                lastTimings.transcription += DictationTimings.seconds(started.duration(to: .now))
+            } catch {
+                livePendingChunks = Array(chunks[index...])
+                throw error
+            }
+            guard let fragment = liveAccumulator.append(result.text) else { continue }
+            liveTranscript = liveAccumulator.text
+            guard liveOutputError == nil, !isShuttingDown else { continue }
+            do {
+                guard let outputTargetProcessID else { throw TextOutputError.targetApplicationUnavailable }
+                let output = textOutputController
+                let started = ContinuousClock.now
+                let insertion = Task { try await output.insertLive(fragment, targetProcessID: outputTargetProcessID) }
+                insertionTask = insertion
+                defer { insertionTask = nil }
+                _ = try await insertion.value
+                lastTimings.insertion += DictationTimings.seconds(started.duration(to: .now))
+            } catch {
+                // An event may already have reached the editor. Never replay it or
+                // send later phrases to a different field. Keep transcribing for History.
+                liveOutputError = error
+                liveOutputMessage = UserFacingMessage.liveOutputPaused
+            }
+        }
+    }
+
+    private func finishLiveDictation(captureInterrupted: Bool) async {
+        var failure: Error?
+        do {
+            _ = try await recordingController.stop()
+        } catch {
+            failure = error
+        }
+        recordingFeedbackPlayer.playStopCue()
+        restorePreviousInputDeviceIfNeeded()
+        // Do not cancel inference or a pending paste when Stop is pressed.
+        await liveTask?.value
+        liveTask = nil
+        let remaining = await liveBuffer.read(from: recordingController, finishing: true)
+        let chunks = livePendingChunks + remaining
+        livePendingChunks = []
+        if !isShuttingDown {
+            do {
+                try await transcribeLiveChunks(chunks)
+            } catch {
+                failure = error
+            }
+        }
+        saveLiveTranscript()
+        if !livePendingChunks.isEmpty, !isShuttingDown,
+           let selection = recordingTranscriptionSelection, let liveModelURL {
+            // Retrying is copy-only, like other retained recordings. Already
+            // recognized phrases are excluded so the editor cannot receive them twice.
+            let samples = livePendingChunks.flatMap { $0 }
+            retainedRequest = TranscriptionRequest(samples: samples, model: selection.model,
+                localModelURL: liveModelURL, language: selection.language, whisperCLIPath: selection.whisperCLIPath)
+            hasRetainedRecording = !samples.isEmpty
+        }
+        outputTargetProcessID = nil
+        liveModelURL = nil
+        livePendingChunks = []
+        if isShuttingDown {
+            state = .idle
+        } else if captureInterrupted {
+            state = .error(message: UserFacingMessage.inputDisconnected)
+        } else if let failure {
+            state = .error(message: failure.localizedDescription)
+        } else if liveOutputError != nil {
+            state = .error(message: UserFacingMessage.liveOutputSaved)
+        } else {
+            state = .idle
+        }
+    }
+
+    private func saveLiveTranscript() {
+        guard isLiveDictating else { return }
+        lastTranscript = liveAccumulator.text
+        settings.addTranscriptToHistory(lastTranscript, maxItems: ReleaseConfig.maxTranscriptHistoryItems)
+        isLiveDictating = false
     }
 
     func retryTranscription() async {
@@ -969,6 +1122,7 @@ final class AppCoordinator: ObservableObject {
         inputRecoveryTask?.cancel()
         languageFeedbackTask?.cancel()
         idleUnloadTask?.cancel()
+        liveTask?.cancel()
         transcriptionTask?.cancel()
         insertionTask?.cancel()
         if isCaptureActive {
@@ -978,6 +1132,11 @@ final class AppCoordinator: ObservableObject {
         restorePreviousInputDeviceIfNeeded()
         _ = await transcriptionTask?.result
         _ = await insertionTask?.result
+        await liveTask?.value
+        liveTask = nil
+        saveLiveTranscript()
+        liveModelURL = nil
+        livePendingChunks = []
         discardRetainedRecording()
         await cancelModelPreparation(releaseModels: true)
         state = .idle
@@ -989,6 +1148,7 @@ private struct RecordingTranscriptionSelection: Sendable {
     let model: SpeechModelDescriptor
     let language: String
     let whisperCLIPath: String
+    let liveDictation: Bool
 }
 
 private struct ModelWarmupSelection: Equatable {

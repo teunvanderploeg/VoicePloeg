@@ -90,6 +90,12 @@ final class AudioCaptureService: NSObject, RecordingController, @unchecked Senda
         return Self.normalize(output)
     }
 
+    func samples(from offset: Int) async -> [Float] {
+        lock.withLock {
+            Array(capturedSamples.dropFirst(max(0, offset)))
+        }
+    }
+
     private func startEngineWithRetry() async throws {
         let maxAttempts = 2
         var lastError: Error?

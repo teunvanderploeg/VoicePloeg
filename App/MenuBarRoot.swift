@@ -36,6 +36,26 @@ struct MenuBarRoot: View {
                     .foregroundStyle(.secondary)
             }
 
+            if coordinator.isLiveDictating {
+                Label(UserFacingMessage.liveDictationTitle, systemImage: "text.cursor")
+                    .font(.caption.weight(.semibold))
+                if let message = coordinator.liveOutputMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if coordinator.liveTranscript.isEmpty {
+                    Text(UserFacingMessage.liveDictationListening)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if !coordinator.liveTranscript.isEmpty {
+                    Text(String(coordinator.liveTranscript.suffix(220)))
+                        .font(.callout)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
+            }
+
             if let message = coordinator.configurationError {
                 Text(message).font(.caption).foregroundStyle(.orange)
             }
@@ -99,7 +119,7 @@ struct MenuBarRoot: View {
         case .starting:
             return UserFacingMessage.startingRecording
         case .listening:
-            return "Stop & Transcribe"
+            return coordinator.isLiveDictating ? UserFacingMessage.liveDictationStop : "Stop & Transcribe"
         case .processing:
             return "Processing..."
         }

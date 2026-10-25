@@ -5,6 +5,187 @@ import XCTest
 
 @MainActor
 final class AppCoordinatorTests: XCTestCase {
+    func testLiveShutdownWhileFinishingSavesRecognizedTextOnlyOnce() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setText("Keep this.")
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { fixture.output.liveInsertions.count == 1 }
+        await fixture.transcriber.setDelay(.seconds(30))
+        await fixture.recorder.append(speech(1))
+        let stop = Task { await fixture.coordinator.toggleRecording() }
+        try await waitUntil { await fixture.transcriber.requests.count == 2 }
+        await fixture.coordinator.shutdown()
+        await stop.value
+        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["Keep this."])
+        XCTAssertEqual(fixture.output.liveInsertions, ["Keep this."])
+        XCTAssertFalse(fixture.coordinator.isLiveDictating)
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+    }
+
+    func testLiveShutdownDuringInferenceStopsWithoutPasting() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setDelay(.seconds(30))
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { await fixture.transcriber.requests.count == 1 }
+        await fixture.coordinator.shutdown()
+        XCTAssertTrue(fixture.output.liveInsertions.isEmpty)
+        XCTAssertFalse(fixture.coordinator.isLiveDictating)
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+        let stops = await fixture.recorder.stopCount
+        XCTAssertEqual(stops, 1)
+    }
+
+    func testLiveFailedAudioCanRetryWithoutReplayingInsertedPhrases() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setText("Already inserted.")
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { fixture.output.liveInsertions.count == 1 }
+        await fixture.transcriber.setFailures(2)
+        await fixture.transcriber.setText("Recovered tail.")
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { !fixture.coordinator.state.isDictationActive }
+        XCTAssertTrue(fixture.coordinator.hasRetainedRecording)
+        XCTAssertEqual(fixture.coordinator.lastTranscript, "Already inserted.")
+        await fixture.coordinator.retryTranscription()
+        XCTAssertFalse(fixture.coordinator.hasRetainedRecording)
+        XCTAssertEqual(fixture.coordinator.lastTranscript, "Recovered tail.")
+        XCTAssertEqual(fixture.output.liveInsertions, ["Already inserted."])
+        XCTAssertTrue(fixture.output.regularInsertions.isEmpty)
+    }
+
+    func testLivePhrasesInsertBeforeStopAndFinalTailIsNotDuplicated() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setResponses(["First sentence.", "Second sentence."])
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { fixture.output.liveInsertions.count == 1 }
+        guard case .listening = fixture.coordinator.state else { return XCTFail("Must keep listening") }
+        XCTAssertEqual(fixture.coordinator.liveTranscript, "First sentence.")
+        await fixture.recorder.append(speech(0.6))
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.output.liveInsertions, ["First sentence.", " Second sentence."])
+        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["First sentence. Second sentence."])
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+        XCTAssertFalse(fixture.coordinator.isLiveDictating)
+        XCTAssertTrue(fixture.output.regularInsertions.isEmpty)
+    }
+
+    func testLiveStopWaitsForInferenceAndPasteWhileDrainingNewAudio() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setDelay(.milliseconds(150))
+        fixture.output.delay = .milliseconds(150)
+        await fixture.transcriber.setResponses(["One.", "Two."])
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { await fixture.transcriber.requests.count == 1 }
+        await fixture.recorder.append(speech(1))
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.output.liveInsertions, ["One.", " Two."])
+        let requests = await fixture.transcriber.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(fixture.settings.transcriptHistory.count, 1)
+    }
+
+    func testLiveFocusFailureStopsAllFurtherOutputAndSavesFullTranscript() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setResponses(["One.", "Two.", "Three."])
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { fixture.output.liveInsertions.count == 1 }
+        fixture.output.failInsertion = true
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { fixture.coordinator.liveOutputMessage != nil }
+        await fixture.recorder.append(speech(1))
+        await fixture.coordinator.toggleRecording()
+        XCTAssertEqual(fixture.output.liveInsertions, ["One."])
+        XCTAssertEqual(fixture.output.liveAttempts, 2)
+        XCTAssertEqual(fixture.settings.transcriptHistory.first?.text, "One. Two. Three.")
+        XCTAssertEqual(fixture.coordinator.state, .error(message: UserFacingMessage.liveOutputSaved))
+    }
+
+    func testLiveSessionPinsModeLanguageAndModelAndResetsForNextRecording() async throws {
+        let fixture = try Fixture(includeMultilingualModel: true, live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setText("Hello.")
+        await fixture.coordinator.toggleRecording()
+        fixture.settings.liveDictationEnabled = false
+        fixture.coordinator.cycleLanguage()
+        await fixture.recorder.append(speech(1))
+        await fixture.coordinator.toggleRecording()
+        await fixture.coordinator.toggleRecording()
+        await fixture.coordinator.toggleRecording()
+        let requests = await fixture.transcriber.requests
+        XCTAssertEqual(requests.map(\.language), ["en", "nl"])
+        XCTAssertEqual(requests.map(\.model.id), ["test-model", "test-multilingual"])
+        XCTAssertEqual(fixture.output.liveInsertions, ["Hello."])
+        XCTAssertEqual(fixture.output.regularInsertions, ["Hello."])
+    }
+
+    func testSilentLiveRecordingDoesNotRunModelOrCreateHistory() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(silence(3))
+        await fixture.coordinator.toggleRecording()
+        let requests = await fixture.transcriber.requests
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertTrue(fixture.settings.transcriptHistory.isEmpty)
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+    }
+
+    func testLiveAutomaticStopFlushesTailOnce() async throws {
+        let fixture = try Fixture(duration: 0.1, live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setText("Finished.")
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1))
+        try await waitUntil { !fixture.coordinator.state.isDictationActive }
+        XCTAssertEqual(fixture.output.liveInsertions, ["Finished."])
+        let stops = await fixture.recorder.stopCount
+        XCTAssertEqual(stops, 1)
+    }
+
+    func testTransientLiveInferenceFailureRetriesOnlyUntranscribedAudio() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        await fixture.transcriber.setFailures(1)
+        await fixture.transcriber.setText("Recovered.")
+        await fixture.coordinator.toggleRecording()
+        await fixture.recorder.append(speech(1) + silence(0.8))
+        try await waitUntil { !fixture.coordinator.state.isDictationActive }
+        XCTAssertEqual(fixture.output.liveInsertions, ["Recovered."])
+        XCTAssertEqual(fixture.settings.transcriptHistory.map(\.text), ["Recovered."])
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+    }
+
+    func testLiveMissingTextFocusRejectsStartBeforeMicrophoneOpens() async throws {
+        let fixture = try Fixture(live: true)
+        defer { fixture.cleanup() }
+        fixture.output.failBegin = true
+        await fixture.coordinator.toggleRecording()
+        let starts = await fixture.recorder.startCount
+        XCTAssertEqual(starts, 0)
+        XCTAssertFalse(fixture.coordinator.isLiveDictating)
+        guard case .error = fixture.coordinator.state else { return XCTFail("Expected focus error") }
+    }
+
+    private func speech(_ seconds: Double) -> [Float] {
+        (0 ..< Int(seconds * 16_000)).map { $0.isMultiple(of: 2) ? 0.025 : -0.025 }
+    }
+
+    private func silence(_ seconds: Double) -> [Float] {
+        [Float](repeating: 0, count: Int(seconds * 16_000))
+    }
+
     func testModelUnloadsAfterConfiguredIdlePeriod() async throws {
         let fixture = try Fixture(idleTimeout: 0.05)
         defer { fixture.cleanup() }
@@ -315,7 +496,7 @@ private final class Fixture {
     let transcriber = TestTranscriber()
     let coordinator: AppCoordinator
 
-    init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false, idleTimeout: TimeInterval = 600) throws {
+    init(duration: TimeInterval = 120, includeMultilingualModel: Bool = false, live: Bool = false, idleTimeout: TimeInterval = 600) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = Data("test model".utf8)
@@ -331,6 +512,8 @@ private final class Fixture {
         settings = AppSettings(userDefaults: defaults)
         settings.selectedWhisperModelID = model.id
         settings.selectedLanguage = "en"
+        settings.liveDictationEnabled = live
+        output.failInsertion = !live
         settings.whisperCLIPath = "/usr/bin/true"
         var catalog = [model]
         if includeMultilingualModel {
@@ -400,15 +583,20 @@ private final class TestPermissions: PermissionController {
 private actor TestRecording: RecordingController {
     var startCount = 0
     var stopCount = 0
-    func start() { startCount += 1 }
-    func stop() -> [Float] { stopCount += 1; return [0.1, -0.1] }
+    private var audio: [Float] = []
+    func start() { startCount += 1; audio = [] }
+    func stop() -> [Float] { stopCount += 1; return audio.isEmpty ? [0.1, -0.1] : AudioCaptureService.normalize(audio) }
+    func append(_ samples: [Float]) { audio += samples }
+    func samples(from offset: Int) -> [Float] { Array(audio.dropFirst(offset)) }
 }
 
 private actor TestTranscriber: ManagedSpeechTranscribing {
     var requests: [TranscriptionRequest] = []
     private var text = ""
-    private var shouldFailTranscription = false
-    func failNextTranscription() { shouldFailTranscription = true }
+    private var responses: [String] = []
+    private var delay: Duration = .zero
+    private var failures = 0
+    func failNextTranscription() { failures = 1 }
     private var shouldSuspendWarmup = false
     var warmupModels: [String] = []
     var warmupReleaseCount = 0
@@ -421,13 +609,14 @@ private actor TestTranscriber: ManagedSpeechTranscribing {
     }
     func suspendNextWarmup() { shouldSuspendWarmup = true }
     func setText(_ text: String) { self.text = text }
-    func transcribe(_ request: TranscriptionRequest) throws -> TranscriptResult {
+    func setResponses(_ responses: [String]) { self.responses = responses }
+    func setDelay(_ delay: Duration) { self.delay = delay }
+    func setFailures(_ count: Int) { failures = count }
+    func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptResult {
         requests.append(request)
-        if shouldFailTranscription {
-            shouldFailTranscription = false
-            throw WhisperTranscriberError.processFailed("temporary failure")
-        }
-        return TranscriptResult(text: text, segments: [], duration: 0, processingTime: 0)
+        if delay > .zero { try await Task.sleep(for: delay) }
+        if failures > 0 { failures -= 1; throw TextOutputError.insertionFailed }
+        return TranscriptResult(text: responses.isEmpty ? text : responses.removeFirst(), segments: [], duration: 0, processingTime: 0)
     }
     func preloadModel(at modelURL: URL, backend: SpeechBackend) async throws {
         warmupModels.append(modelURL.lastPathComponent)
@@ -453,9 +642,27 @@ private actor TestTranscriber: ManagedSpeechTranscribing {
 @MainActor
 private final class TestOutput: TextOutputController {
     var insertCount = 0
+    var failBegin = false
+    var failInsertion = true
+    var delay: Duration = .zero
+    var liveInsertions: [String] = []
+    var regularInsertions: [String] = []
+    var liveAttempts = 0
+    func beginLiveInsertion(targetProcessID: pid_t) throws {
+        if failBegin { throw TextOutputError.targetFocusUnavailable }
+    }
+    func insertLive(_ text: String, targetProcessID: pid_t) async throws -> TextInsertionMethod {
+        liveAttempts += 1
+        if failInsertion { throw TextOutputError.targetFocusUnavailable }
+        if delay > .zero { try await Task.sleep(for: delay) }
+        liveInsertions.append(text)
+        return .clipboardPaste
+    }
     func insert(_ text: String, targetProcessID: pid_t) throws -> TextInsertionMethod {
         insertCount += 1
-        throw TextOutputError.insertionFailed
+        if failInsertion { throw TextOutputError.insertionFailed }
+        regularInsertions.append(text)
+        return .clipboardPaste
     }
 }
 
