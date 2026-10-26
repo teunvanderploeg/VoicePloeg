@@ -34,7 +34,10 @@ final class OfflineBackendSmokeTests: XCTestCase {
                 let load = DictationTimings.seconds(started.duration(to: .now))
                 for example in corpus.cases where model.supports(language: example.language) {
                     let wav = URL(fileURLWithPath: example.wavPath, relativeTo: corpusURL.deletingLastPathComponent()).standardizedFileURL
-                    let samples = try await Task.detached { try Self.samples(at: wav) }.value
+                    // A concrete type avoids capturing the MainActor XCTest instance through dynamic Self.
+                    let samples = try await Task.detached { @Sendable [wav] in
+                        try OfflineBackendSmokeTests.samples(at: wav)
+                    }.value
                     for variant in ["raw", "normalized", "quiet-normalized"] {
                         let input: [Float]
                         switch variant {
