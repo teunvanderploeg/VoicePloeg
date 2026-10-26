@@ -137,7 +137,7 @@ pattern_exists 'sha256:' "$CRISPER_REQUIREMENTS" \
   || fail "CrisperWhisper lock has no package hashes"
 
 [[ -x "$CRISPER_UV" ]] || fail "Pinned uv executable missing; run Scripts/bootstrap_crisper_runtime.sh"
-/usr/bin/lipo -verify_arch arm64 "$CRISPER_UV" || fail "Runtime installer must support Apple Silicon"
+/usr/bin/lipo "$CRISPER_UV" -verify_arch arm64 || fail "Runtime installer must support Apple Silicon"
 if [[ "$(uname -m)" == "arm64" ]]; then
   UV_OUTPUT="$("$CRISPER_UV" --version)"
   [[ "$UV_OUTPUT" == "uv ${UV_VERSION}"* ]] || fail "Bundled uv version mismatch"
