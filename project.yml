@@ -5,6 +5,9 @@ settings:
   base:
     SWIFT_VERSION: 6.0
     MACOSX_DEPLOYMENT_TARGET: 14.0
+packages:
+  PloegKit:
+    path: ../PloegKit
 targets:
   VoicePloeg:
     type: application
@@ -19,10 +22,13 @@ targets:
         excludes:
           - "**/__pycache__"
           - "**/*.pyc"
+    dependencies:
+      - package: PloegKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.voiceploeg.app
         PRODUCT_NAME: VoicePloeg
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: App/Info.plist
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 0.1.0

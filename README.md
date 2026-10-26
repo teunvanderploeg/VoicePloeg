@@ -5,6 +5,9 @@ Native macOS (Swift + SwiftUI) menu bar app for offline dictation:
 - Selectable local transcription via `whisper.cpp`, CrisperWhisper 2.0, or Underdog Bark 3.0
 - Text insertion into the active app through Accessibility or clipboard paste
 
+VoicePloeg is beta software. This beta introduces the shared Ploeg design and
+PloegToolbox launch support. Further fixes and updates will follow.
+
 ## Current v1 Prototype Status
 
 Implemented:
@@ -145,3 +148,51 @@ Pre-release automation:
 ```bash
 /Users/teun/Code/VoicePloeg/Scripts/release_preflight.sh
 ```
+
+## Ploeg family design
+
+The native frontend uses the shared `PloegKit` Swift package for adaptive colors,
+centered app artwork, cards, status labels and buttons. Keep its checkout beside
+this repository at `../PloegKit` when using Swift Package Manager or the Xcode
+project. The app remains Swift/SwiftUI and uses the existing transcription engines.
+
+Clone [PloegKit](https://github.com/teunvanderploeg/PloegKit) at the matching beta
+tag beside this repository before building. From the directory containing
+`VoicePloeg`, run:
+
+```bash
+git clone --branch v0.1.0-beta.1 https://github.com/teunvanderploeg/PloegKit.git PloegKit
+```
+
+Settings follow the Mac's appearance. The menu bar opens a 320-point quick-action
+panel with the current model/language, dictation state, transcript and recovery
+controls. Recording, live insertion and model routing keep their existing behavior.
+
+The approved icon master is `Resources/Branding/VoicePloeg.png`. Run
+`python3 Scripts/export_brand_icon.py` to regenerate the asset catalog and `.icns`.
+After changing project configuration, regenerate with
+`xcodegen generate --spec project.yml`. Existing bundle IDs and preference/data
+locations are preserved.
+
+
+For visual QA, `--design-preview` opens Settings and `--design-preview-menu`
+opens the quick-action panel using the actual redesigned views with inert,
+in-memory example data. No engine, recording device, global shortcut or text
+insertion service is initialized. Content actions are disabled; Settings page
+navigation remains available. Normal startup does not enable this fixture.
+
+A separate review copy can set `PloegDesignPreview` to `true` in Info.plist and
+optionally `PloegDesignPreviewMode` to `menu` or `settings` when launching without
+arguments. Keep these keys out of ordinary install/release bundles. The local
+ad-hoc review build is at `build/DesignFoundation/VoicePloeg.app`.
+
+## Open from PloegToolbox
+
+PloegToolbox can launch this bundle with `--show-settings`. A cold launch with
+that flag shows Settings after startup. A standard application reopen brings
+the same retained Settings window forward, including after it was closed or
+minimized. The menu panel and Settings command use this same presenter.
+Opening Settings does not start recording, replay a transcript or copy text.
+Normal launch without the flag remains a menu-bar launch. Design previews ignore
+the flag and reopen only their inert fixture. `PloegToolboxOpenVersion` is `1` in
+Info.plist to advertise this visible-open behavior; the app version is unchanged.

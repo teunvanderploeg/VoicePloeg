@@ -1,4 +1,5 @@
 import AppKit
+import PloegKit
 import SwiftUI
 
 struct HotkeyRecorderView: View {
@@ -8,11 +9,18 @@ struct HotkeyRecorderView: View {
 
     var body: some View {
         HStack {
-            Text("Current: \(hotkey.displayText)")
+            Text(hotkey.displayText)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(PloegTheme.ink)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(PloegTheme.canvas, in: RoundedRectangle(cornerRadius: PloegTheme.controlRadius))
             Spacer()
-            Button(isRecording ? "Press keys..." : "Record Hotkey") {
+            Button(isRecording ? UserFacingMessage.shortcutListening : UserFacingMessage.recordShortcut) {
                 toggleRecording()
             }
+            .buttonStyle(PloegSecondaryButtonStyle())
+            .help(isRecording ? UserFacingMessage.escapeToCancel : UserFacingMessage.dictationHotkeyHelp)
         }
         .onDisappear {
             stopMonitoring()

@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>PloegToolboxOpenVersion</key>
+    <integer>1</integer>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconFile</key>
+    <string>VoicePloeg</string>
     <key>CFBundleDisplayName</key>
     <string>VoicePloeg</string>
     <key>CFBundleExecutable</key>

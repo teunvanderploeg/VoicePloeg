@@ -1,4 +1,5 @@
 import SwiftUI
+import PloegKit
 
 struct LanguageModelAssignmentsView: View {
     @ObservedObject var coordinator: AppCoordinator
@@ -28,7 +29,7 @@ struct LanguageModelAssignmentsView: View {
 
             Text(UserFacingMessage.languageModelsDescription)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PloegTheme.muted)
         }
         .disabled(!coordinator.canManageModels)
     }

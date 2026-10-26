@@ -4,6 +4,7 @@ import Foundation
 
 @MainActor
 final class AppCoordinator: ObservableObject {
+    let isDesignPreview: Bool
     @Published private(set) var state: AppState = .idle
     @Published private(set) var configurationError: String?
     @Published private(set) var preparationError: String?
@@ -84,14 +85,18 @@ final class AppCoordinator: ObservableObject {
         transcriber: (any ManagedSpeechTranscribing)? = nil,
         maxRecordingDurationSeconds: TimeInterval = ReleaseConfig.maxRecordingDurationSeconds,
         idleTimeoutSeconds: TimeInterval = ReleaseConfig.modelIdleTimeoutSeconds,
-        outputTargetProvider: (@MainActor () -> pid_t?)? = nil
+        outputTargetProvider: (@MainActor () -> pid_t?)? = nil,
+        isDesignPreview: Bool = false
     ) {
+        self.isDesignPreview = isDesignPreview
         self.settings = settings
         self.inputRouteController = InputRouteController(settings: settings, devices: audioInputDeviceManager)
         self.idleTimeoutSeconds = idleTimeoutSeconds
         self.outputTargetProvider = outputTargetProvider
         self.modelManager = modelManager
-        settings.migrateModelAssignmentsIfNeeded(catalog: modelManager.catalog)
+        if !isDesignPreview {
+            settings.migrateModelAssignmentsIfNeeded(catalog: modelManager.catalog)
+        }
         self.permissionController = permissionController
         self.recordingController = recordingController
         self.textOutputController = textOutputController
@@ -108,6 +113,9 @@ final class AppCoordinator: ObservableObject {
         )
         permissionStatus = permissionController.currentStatus()
         accessibilityDiagnostics = permissionController.accessibilityDiagnostics()
+
+        // The visual fixture uses inert dependencies and no runtime preparation.
+        guard !isDesignPreview else { return }
 
         hotkeyService.onTrigger = { [weak self] in
             guard let self else { return }
@@ -234,6 +242,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     func toggleRecording() async {
+        guard !isDesignPreview else { return }
         guard !isShuttingDown else { return }
         if isCaptureActive {
             await stopRecordingAndTranscribe()

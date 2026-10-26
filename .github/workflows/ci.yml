@@ -11,8 +11,19 @@ jobs:
   validate:
     runs-on: macos-15
     timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: VoicePloeg
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: VoicePloeg
+      - name: Check out shared Ploeg design
+        uses: actions/checkout@v4
+        with:
+          repository: teunvanderploeg/PloegKit
+          ref: v0.1.0-beta.1
+          path: PloegKit
       - name: Install project generator
         run: command -v xcodegen || brew install xcodegen
       - name: Build pinned Whisper runtime

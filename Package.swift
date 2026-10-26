@@ -9,14 +9,17 @@ let package = Package(
     products: [
         .executable(name: "VoicePloeg", targets: ["VoicePloeg"])
     ],
+    dependencies: [.package(path: "../PloegKit")],
     targets: [
         .executableTarget(
             name: "VoicePloeg",
+            dependencies: [.product(name: "PloegKit", package: "PloegKit")],
             path: ".",
             exclude: [
                 "Vendor",
                 "Scripts",
                 ".build",
+                "build",
                 "README.md",
                 ".gitignore",
                 "voiceploeg.png",

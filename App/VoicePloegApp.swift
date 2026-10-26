@@ -1,21 +1,39 @@
 import SwiftUI
 import AppKit
+import PloegKit
 
 @main
 struct VoicePloegApp: App {
     @NSApplicationDelegateAdaptor(VoicePloegAppDelegate.self) private var appDelegate
     @StateObject private var coordinator: AppCoordinator
+    private let previewMode: VoiceDesignPreviewMode?
+    private let settingsPresenter: VoiceSettingsPresenter
 
     init() {
-        let coordinator = AppCoordinator()
+        let previewMode = VoiceDesignPreviewMode.resolve(
+            arguments: ProcessInfo.processInfo.arguments, info: Bundle.main.infoDictionary ?? [:]
+        )
+        self.previewMode = previewMode
+        let coordinator = previewMode == nil ? AppCoordinator() : VoiceDesignPreview.coordinator()
+        let settingsPresenter = VoiceSettingsPresenter(coordinator: coordinator)
+        self.settingsPresenter = settingsPresenter
         _coordinator = StateObject(wrappedValue: coordinator)
         appDelegate.coordinator = coordinator
-        NSApplication.shared.setActivationPolicy(.accessory)
+        appDelegate.settingsPresenter = settingsPresenter
+        appDelegate.isDesignPreview = previewMode != nil
+        appDelegate.onPreviewReopen = { VoiceDesignPreview.bringToFront() }
+        NSApplication.shared.setActivationPolicy(previewMode == nil ? .accessory : .regular)
+        NSApplication.shared.applicationIconImage = PloegAssets.image(for: .voice)
+        if let previewMode {
+            DispatchQueue.main.async {
+                VoiceDesignPreview.show(coordinator, mode: previewMode)
+            }
+        }
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarRoot(coordinator: coordinator)
+        MenuBarExtra(isInserted: .constant(previewMode == nil)) {
+            MenuBarRoot(coordinator: coordinator, onOpenSettings: settingsPresenter.showSettings)
         } label: {
             if let flag = coordinator.languageFeedbackFlag {
                 Image(nsImage: flagImage(flag))
@@ -23,14 +41,9 @@ struct VoicePloegApp: App {
                 Image(systemName: coordinator.state.symbolName)
             }
         }
-
-        Window("Settings", id: "settings") {
-            SettingsView(coordinator: coordinator)
-                .frame(minWidth: 860, minHeight: 620)
-        }
-        .defaultSize(width: 1000, height: 720)
+        .menuBarExtraStyle(.window)
         .commands {
-            SettingsCommands()
+            SettingsCommands(isPreview: previewMode != nil, openSettings: settingsPresenter.showSettings)
         }
     }
 
@@ -53,15 +66,16 @@ struct VoicePloegApp: App {
 }
 
 private struct SettingsCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
+    var isPreview = false
+    let openSettings: () -> Void
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button("Settings...") {
-                openWindow(id: "settings")
-                NSApp.activate(ignoringOtherApps: true)
+            Button(UserFacingMessage.settingsTitle) {
+                openSettings()
             }
             .keyboardShortcut(",", modifiers: [.command])
+            .disabled(isPreview)
         }
     }
 }
@@ -70,7 +84,39 @@ private struct SettingsCommands: Commands {
 @MainActor
 final class VoicePloegAppDelegate: NSObject, NSApplicationDelegate {
     weak var coordinator: AppCoordinator?
+    var settingsPresenter: VoiceSettingsPresenter?
+    var isDesignPreview = false
+    var onPreviewReopen: (() -> Void)?
     private var isTerminating = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !isDesignPreview, ProcessInfo.processInfo.arguments.contains("--show-settings") else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.handleLaunch(arguments: ProcessInfo.processInfo.arguments)
+        }
+    }
+
+    @discardableResult
+    func handleLaunch(arguments: [String]) -> Bool {
+        guard !isDesignPreview, arguments.contains("--show-settings") else { return false }
+        settingsPresenter?.showSettings()
+        return true
+    }
+
+    @discardableResult
+    func handleReopen() -> Bool {
+        if isDesignPreview {
+            onPreviewReopen?()
+        } else {
+            settingsPresenter?.showSettings()
+        }
+        // This delegate has handled the request; don't ask AppKit to open another window.
+        return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        handleReopen()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isTerminating else { return .terminateLater }

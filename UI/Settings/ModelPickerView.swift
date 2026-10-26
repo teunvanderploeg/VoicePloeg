@@ -1,11 +1,12 @@
 import SwiftUI
+import PloegKit
 
 struct ModelPickerView: View {
     @ObservedObject var coordinator: AppCoordinator
     @State private var isConfirmingRemoval = false
 
     var body: some View {
-        Picker("Backend", selection: $coordinator.settings.selectedTranscriptionBackend) {
+        Picker(UserFacingMessage.engineTitle, selection: $coordinator.settings.selectedTranscriptionBackend) {
             ForEach(SpeechBackend.allCases) { backend in
                 Text(backend.displayName).tag(backend)
             }
@@ -22,18 +23,19 @@ struct ModelPickerView: View {
             Button(UserFacingMessage.downloadModel) {
                 Task { await coordinator.downloadSelectedModel() }
             }
+            .buttonStyle(PloegPrimaryButtonStyle())
             .disabled(!coordinator.canManageModels || !canDownloadSelectedModel)
 
             if let selected = coordinator.modelToManage() {
                 let isDownloaded = coordinator.modelManager.isDownloaded(selected)
-                Text(isDownloaded ? "Downloaded locally" : "Not downloaded")
-                    .foregroundStyle(isDownloaded ? .green : .secondary)
+                Text(isDownloaded ? UserFacingMessage.downloadedStatus : UserFacingMessage.notDownloadedStatus)
+                    .foregroundStyle(isDownloaded ? PloegTheme.success : PloegTheme.muted)
                     .font(.caption)
                 if isDownloaded {
-                    Button("Remove", role: .destructive) {
+                    Button(UserFacingMessage.removeModel, role: .destructive) {
                         isConfirmingRemoval = true
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(PloegSecondaryButtonStyle())
                     .disabled(!coordinator.canManageModels)
                 }
             }

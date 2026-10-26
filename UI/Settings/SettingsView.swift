@@ -1,49 +1,34 @@
+import PloegKit
 import SwiftUI
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
-    case overview
-    case recording
-    case transcription
-    case history
-
+    case overview, recording, transcription, history
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .overview:
-            return "Overview"
-        case .recording:
-            return "Recording"
-        case .transcription:
-            return "Transcription"
-        case .history:
-            return "History"
+        case .overview: return UserFacingMessage.overviewTitle
+        case .recording: return UserFacingMessage.recordingTitle
+        case .transcription: return UserFacingMessage.transcriptionTitle
+        case .history: return UserFacingMessage.historyTitle
         }
     }
 
     var subtitle: String {
         switch self {
-        case .overview:
-            return "Permissions and runtime"
-        case .recording:
-            return "Input and hotkey"
-        case .transcription:
-            return "Model, language, runtime"
-        case .history:
-            return "Recent dictations"
+        case .overview: return UserFacingMessage.overviewSubtitle
+        case .recording: return UserFacingMessage.recordingSubtitle
+        case .transcription: return UserFacingMessage.transcriptionSubtitle
+        case .history: return UserFacingMessage.historySubtitle
         }
     }
 
     var systemImage: String {
         switch self {
-        case .overview:
-            return "square.grid.2x2"
-        case .recording:
-            return "mic"
-        case .transcription:
-            return "waveform.and.magnifyingglass"
-        case .history:
-            return "clock.arrow.circlepath"
+        case .overview: return "square.grid.2x2"
+        case .recording: return "mic"
+        case .transcription: return "waveform.and.magnifyingglass"
+        case .history: return "clock.arrow.circlepath"
         }
     }
 }
@@ -52,160 +37,114 @@ struct SettingsView: View {
     @ObservedObject var coordinator: AppCoordinator
     @State private var showDiagnostics = false
     @State private var copiedTranscriptID: UUID?
-    @State private var selectedPage: SettingsPage? = .overview
+    @State private var selectedPage: SettingsPage = .overview
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
+            Rectangle().fill(PloegTheme.line).frame(width: 1)
             detailView
         }
-        .navigationSplitViewStyle(.balanced)
+        .foregroundStyle(PloegTheme.ink)
+        .tint(PloegTheme.accent)
         .onAppear {
+            guard !coordinator.isDesignPreview else { return }
             coordinator.refreshInputDevices()
             coordinator.refreshPermissions()
         }
     }
 
     private var sidebar: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            List(SettingsPage.allCases, selection: $selectedPage) { page in
-                HStack(spacing: 10) {
-                    Image(systemName: page.systemImage)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(selectedPage == page ? .white : .primary)
-                        .frame(width: 20)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(page.title)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        Text(page.subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(selectedPage == page ? .white.opacity(0.85) : .secondary)
-                    }
-                }
-                .padding(.vertical, 6)
-                .listRowBackground(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selectedPage == page ? Color.accentColor : Color.clear)
-                        .padding(.vertical, 2)
-                )
-                .foregroundStyle(selectedPage == page ? .white : .primary)
-                .tag(page)
-            }
-            .scrollContentBackground(.hidden)
-            .listStyle(.sidebar)
-            .safeAreaInset(edge: .top) {
+        VStack(alignment: .leading, spacing: 28) {
+            HStack(spacing: 12) {
+                PloegAppIcon(.voice, size: 42)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("VoicePloeg")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text("Settings")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(UserFacingMessage.appName)
+                        .font(.system(size: 19, weight: .semibold))
+                    Text(UserFacingMessage.settingsTitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(PloegTheme.muted)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-                .background(.ultraThinMaterial)
             }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+
+            VStack(spacing: 6) {
+                ForEach(SettingsPage.allCases) { page in
+                    Button {
+                        selectedPage = page
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: page.systemImage)
+                                .font(.system(size: 15, weight: .medium))
+                                .frame(width: 20)
+                            Text(page.title)
+                                .font(.system(size: 13, weight: selectedPage == page ? .semibold : .medium))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(selectedPage == page ? PloegTheme.accent : PloegTheme.muted)
+                        .padding(.horizontal, 12)
+                        .frame(height: 42)
+                        .background(selectedPage == page ? PloegTheme.accentSoft : .clear,
+                                    in: RoundedRectangle(cornerRadius: PloegTheme.controlRadius))
+                        .contentShape(RoundedRectangle(cornerRadius: PloegTheme.controlRadius))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selectedPage == page ? .isSelected : [])
+                }
+            }
+            Spacer(minLength: 16)
+            VStack(alignment: .leading, spacing: 6) {
+                Label(UserFacingMessage.onThisMac, systemImage: "desktopcomputer")
+                    .font(.system(size: 12, weight: .medium))
+                Text(UserFacingMessage.localProcessing)
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(PloegTheme.muted)
+            .padding(8)
         }
-        .frame(minWidth: 250)
+        .padding(16)
+        .frame(width: PloegTheme.sidebarWidth)
+        .background(PloegTheme.sidebar)
     }
 
     private var detailView: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    pageHero
-
-                    switch selectedPage ?? .overview {
-                    case .overview:
-                        overviewPage
-                    case .recording:
-                        recordingPage
-                    case .transcription:
-                        transcriptionPage
-                    case .history:
-                        historyPage
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                pageHero
+                Group {
+                    switch selectedPage {
+                    case .overview: overviewPage
+                    case .recording: recordingPage
+                    case .transcription: transcriptionPage
+                    case .history: historyPage
                     }
                 }
-                .padding(20)
+                .font(.system(size: 13))
+                .disabled(coordinator.isDesignPreview)
             }
+            .padding(PloegTheme.pagePadding)
+            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .background(PloegTheme.canvas)
     }
 
     private var pageHero: some View {
-        let page = selectedPage ?? .overview
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                Image(systemName: page.systemImage)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 28)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(page.title)
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text(page.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                HStack(spacing: 8) {
-                    StatusBadge(
-                        title: coordinator.permissionStatus.microphoneGranted ? "Mic Allowed" : "Mic Missing",
-                        isGood: coordinator.permissionStatus.microphoneGranted
-                    )
-                    StatusBadge(
-                        title: coordinator.permissionStatus.accessibilityGranted ? "AX Allowed" : "AX Missing",
-                        isGood: coordinator.permissionStatus.accessibilityGranted
-                    )
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 16) {
+                PloegSectionHeader(selectedPage.title, subtitle: selectedPage.subtitle)
+                Spacer(minLength: 0)
+                PloegStatusPill(VoiceInterface.title(for: coordinator),
+                                systemImage: VoiceInterface.symbol(for: coordinator),
+                                color: VoiceInterface.color(for: coordinator))
             }
-
-            HStack(spacing: 14) {
-                LabeledContent("State", value: coordinator.state.title)
-                Divider()
-                    .frame(height: 16)
-                LabeledContent("History", value: "\(coordinator.settings.transcriptHistory.count)")
+            if case let .error(message) = coordinator.state {
+                Label(message, systemImage: "exclamationmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PloegTheme.warning)
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
     }
 
     private var overviewPage: some View {
@@ -244,14 +183,14 @@ struct SettingsView: View {
     }
 
     private var quickRuntimeCard: some View {
-        SettingsCard(title: "Runtime", systemImage: "gauge.with.dots.needle.bottom.50percent") {
+        SettingsCard(title: UserFacingMessage.runtimeTitle, systemImage: "gauge.with.dots.needle.bottom.50percent") {
             VStack(alignment: .leading, spacing: 10) {
-                LabeledContent("Backend", value: coordinator.selectedModel()?.backend.displayName ?? "Not selected")
+                LabeledContent(UserFacingMessage.engineTitle, value: coordinator.selectedModel()?.backend.displayName ?? UserFacingMessage.noModelSelected)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
-                LabeledContent("Selected Model", value: coordinator.selectedModel()?.displayName ?? "Not selected")
+                    .foregroundStyle(PloegTheme.muted)
+                LabeledContent(UserFacingMessage.selectedModelTitle, value: coordinator.selectedModel()?.displayName ?? UserFacingMessage.noModelSelected)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -264,9 +203,9 @@ struct SettingsView: View {
 
                 if !coordinator.lastTranscript.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Latest Transcript")
+                        Text(UserFacingMessage.lastTranscriptTitle)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PloegTheme.muted)
                         Text(coordinator.lastTranscript)
                             .font(.callout)
                             .lineLimit(3)
@@ -274,19 +213,19 @@ struct SettingsView: View {
                             .textSelection(.enabled)
                     }
                 } else {
-                    Text("No transcription yet in this session.")
+                    Text(UserFacingMessage.noSessionTranscript)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PloegTheme.muted)
                 }
             }
         }
     }
 
     private var permissionsCard: some View {
-        SettingsCard(title: "Permissions", systemImage: "lock.shield.fill") {
+        SettingsCard(title: UserFacingMessage.permissionsTitle, systemImage: "lock.shield.fill") {
             VStack(alignment: .leading, spacing: 10) {
-                PermissionRow(title: "Microphone", granted: coordinator.permissionStatus.microphoneGranted)
-                PermissionRow(title: "Accessibility", granted: coordinator.permissionStatus.accessibilityGranted)
+                PermissionRow(title: UserFacingMessage.microphoneTitle, granted: coordinator.permissionStatus.microphoneGranted)
+                PermissionRow(title: UserFacingMessage.accessibilityTitle, granted: coordinator.permissionStatus.accessibilityGranted)
 
                 if !coordinator.permissionStatus.microphoneGranted {
                     Button(UserFacingMessage.openMicrophoneSettings) {
@@ -295,25 +234,25 @@ struct SettingsView: View {
                 }
 
                 HStack {
-                    Button("Request Accessibility Permission") {
+                    Button(UserFacingMessage.requestAccessibility) {
                         coordinator.requestAccessibilityPermission()
                     }
 
-                    Button("Open Accessibility Settings") {
+                    Button(UserFacingMessage.openAccessibilitySettings) {
                         coordinator.openAccessibilitySettings()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(PloegSecondaryButtonStyle())
 
-                    Button("Refresh") {
+                    Button(UserFacingMessage.refreshStatus) {
                         coordinator.refreshPermissions()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(PloegSecondaryButtonStyle())
                 }
 
                 if !coordinator.permissionStatus.accessibilityGranted {
-                    Text("Accessibility is required to insert text into other apps.")
+                    Text(UserFacingMessage.accessibilityRequired)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(PloegTheme.warning)
                 }
 
                 DisclosureGroup(isExpanded: $showDiagnostics) {
@@ -328,23 +267,23 @@ struct SettingsView: View {
                             .lineLimit(2)
                             .truncationMode(.middle)
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(PloegTheme.muted)
                     .textSelection(.enabled)
                 } label: {
-                    Text("Troubleshooting Details")
+                    Text(UserFacingMessage.troubleshootingTitle)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PloegTheme.muted)
                 }
             }
         }
     }
 
     private var inputCard: some View {
-        SettingsCard(title: "Input Device", systemImage: "mic.fill.badge.plus") {
+        SettingsCard(title: UserFacingMessage.inputTitle, systemImage: "mic.fill.badge.plus") {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("Preferred Recording Input", selection: $coordinator.settings.preferredInputDeviceUID) {
-                    Text("System Default").tag(nil as String?)
+                Picker(UserFacingMessage.preferredInput, selection: $coordinator.settings.preferredInputDeviceUID) {
+                    Text(UserFacingMessage.systemDefaultInput).tag(nil as String?)
                     ForEach(coordinator.availableInputDevices) { device in
                         Text(device.name).tag(Optional(device.uid))
                     }
@@ -357,11 +296,11 @@ struct SettingsView: View {
 
                 Text("When enabled, recording is stopped before start if the effective input device is Bluetooth/HFP.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
 
                 HStack {
-                    Text("Current System Input")
-                        .foregroundStyle(.secondary)
+                    Text(UserFacingMessage.currentInputTitle)
+                        .foregroundStyle(PloegTheme.muted)
                     Spacer()
                     Text(coordinator.currentDefaultInputDeviceName())
                         .fontWeight(.medium)
@@ -370,19 +309,19 @@ struct SettingsView: View {
                 if coordinator.shouldShowBluetoothInputWarning() {
                     Label("Effective recording input is Bluetooth, which can switch headphones to call mode.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(PloegTheme.warning)
                 }
 
                 if coordinator.settings.preferredInputDeviceUID != nil, coordinator.preferredInputDevice() == nil {
                     Text("Preferred input device is not currently available.")
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(PloegTheme.danger)
                 }
 
-                Button("Refresh Input Devices") {
+                Button(UserFacingMessage.refreshInputs) {
                     coordinator.refreshInputDevices()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(PloegSecondaryButtonStyle())
             }
         }
     }
@@ -392,7 +331,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(UserFacingMessage.modelDownloadsDescription)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
                 ModelPickerView(coordinator: coordinator)
 
                 if coordinator.isDownloadingModel {
@@ -409,7 +348,7 @@ struct SettingsView: View {
     }
 
     private var languageCard: some View {
-        SettingsCard(title: "Language", systemImage: "globe") {
+        SettingsCard(title: UserFacingMessage.activeLanguage, systemImage: "globe") {
             VStack(alignment: .leading, spacing: 10) {
                 Picker(UserFacingMessage.transcriptionLanguage, selection: $coordinator.settings.selectedLanguage) {
                     Text(UserFacingMessage.automaticLanguage).tag("auto")
@@ -427,9 +366,9 @@ struct SettingsView: View {
                         .font(.caption)
                     Text(coordinator.selectedModelReadinessMessage)
                         .font(.caption)
-                        .foregroundStyle(coordinator.canUseSelectedBackend() ? Color.secondary : Color.orange)
+                        .foregroundStyle(coordinator.canUseSelectedBackend() ? PloegTheme.muted : PloegTheme.warning)
                     if let message = coordinator.preparationError {
-                        Text(message).font(.caption).foregroundStyle(.orange)
+                        Text(message).font(.caption).foregroundStyle(PloegTheme.warning)
                     }
                 }
 
@@ -438,21 +377,21 @@ struct SettingsView: View {
                    !model.supports(language: coordinator.settings.selectedLanguage) {
                     Label(UserFacingMessage.modelLanguageMismatch, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(PloegTheme.warning)
                 }
 
                 if coordinator.selectedModel()?.backend == .crisperWhisper,
                    coordinator.settings.selectedLanguage == "auto" {
                     Label(UserFacingMessage.crisperRequiresExplicitLanguage, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(PloegTheme.warning)
                 }
             }
         }
     }
 
     private var hotkeyCard: some View {
-        SettingsCard(title: "Hotkey", systemImage: "keyboard.fill") {
+        SettingsCard(title: UserFacingMessage.shortcutTitle, systemImage: "keyboard.fill") {
             VStack(alignment: .leading, spacing: 10) {
                 HotkeyRecorderView(hotkey: Binding(
                     get: { coordinator.settings.hotkey },
@@ -460,11 +399,11 @@ struct SettingsView: View {
                 ))
                 .disabled(coordinator.state.isDictationActive)
                 if let message = coordinator.configurationError {
-                    Text(message).font(.caption).foregroundStyle(.orange)
+                    Text(message).font(.caption).foregroundStyle(PloegTheme.warning)
                 }
                 Text(UserFacingMessage.dictationHotkeyHelp)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
             }
         }
     }
@@ -479,10 +418,10 @@ struct SettingsView: View {
                     .font(.callout)
                 Text(UserFacingMessage.liveDictationHelp)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
                 Text(UserFacingMessage.liveDictationLatency)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
             }
         }
     }
@@ -494,7 +433,7 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 Text("Auto-detect checks configured path, project Vendor build, and common Homebrew paths.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
             }
         }
     }
@@ -505,7 +444,7 @@ struct SettingsView: View {
                 Text(coordinator.barkRuntimeStatus.title)
                 Text(UserFacingMessage.barkRuntimeDescription)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
                 Text(UserFacingMessage.barkAttribution)
                     .font(.caption)
                 Link(UserFacingMessage.barkModelCard,
@@ -547,13 +486,13 @@ struct SettingsView: View {
 
                 Text("Inference runs entirely on this Mac. Internet is used only to install the runtime and selected model; transcription forces Hugging Face and Transformers offline mode.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PloegTheme.muted)
 
                 if coordinator.settings.acceptedCrisperLicenseVersion != ReleaseConfig.crisperLicenseVersion {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("The standard CrisperWhisper 2.0 weights use the Nyra Health Non-Commercial Research License. Commercial use requires a separate license.")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(PloegTheme.warning)
                         HStack {
                             Link(
                                 "Read Model License",
@@ -562,13 +501,13 @@ struct SettingsView: View {
                             Button("Accept for Non-Commercial Use") {
                                 coordinator.acceptCrisperLicense()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(PloegPrimaryButtonStyle())
                         }
                     }
                 } else {
                     Label("Non-commercial model license accepted", systemImage: "checkmark.seal.fill")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(PloegTheme.success)
                 }
 
                 HStack {
@@ -592,7 +531,7 @@ struct SettingsView: View {
                     case .incompatibleHardware:
                         Text("Use whisper.cpp on this Mac.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PloegTheme.muted)
                     }
                 }
             }
@@ -600,7 +539,7 @@ struct SettingsView: View {
     }
 
     private var historyCard: some View {
-        SettingsCard(title: "History", systemImage: "clock.arrow.circlepath") {
+        SettingsCard(title: UserFacingMessage.historyTitle, systemImage: "clock.arrow.circlepath") {
             VStack(alignment: .leading, spacing: 10) {
                 Picker(UserFacingMessage.historyDays, selection: $coordinator.settings.transcriptRetention) {
                     ForEach(TranscriptRetention.allCases) { retention in
@@ -608,23 +547,23 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
-                    Label("\(coordinator.settings.transcriptHistory.count) saved", systemImage: "text.bubble")
+                    Label(UserFacingMessage.savedTranscriptCount(coordinator.settings.transcriptHistory.count), systemImage: "text.bubble")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PloegTheme.muted)
                     Spacer()
                     Button(UserFacingMessage.clearTranscripts) {
                         coordinator.clearTranscriptHistory()
                         copiedTranscriptID = nil
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(PloegSecondaryButtonStyle())
                     .disabled(coordinator.settings.transcriptHistory.isEmpty)
                 }
 
                 if coordinator.settings.transcriptHistory.isEmpty {
                     ContentUnavailableView(
-                        "No transcripts yet",
+                        UserFacingMessage.noTranscriptsTitle,
                         systemImage: "waveform.and.magnifyingglass",
-                        description: Text("Your latest transcriptions will show up here.")
+                        description: Text(UserFacingMessage.noTranscriptsDescription)
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -635,14 +574,14 @@ struct SettingsView: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack(spacing: 8) {
                                         Label(timestampText(for: item.createdAt), systemImage: "clock")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
+                                            .font(.caption)
+                                            .foregroundStyle(PloegTheme.muted)
                                         Spacer()
                                         Button(UserFacingMessage.deleteTranscript, role: .destructive) {
                                             coordinator.settings.removeTranscript(id: item.id)
                                         }
                                         .controlSize(.small)
-                                        Button(copiedTranscriptID == item.id ? "Copied" : "Copy") {
+                                        Button(copiedTranscriptID == item.id ? UserFacingMessage.copiedStatus : UserFacingMessage.copyAction) {
                                             coordinator.copyTranscriptToClipboard(item.text)
                                             copiedTranscriptID = item.id
                                             Task { @MainActor in
@@ -652,7 +591,7 @@ struct SettingsView: View {
                                                 }
                                             }
                                         }
-                                        .buttonStyle(.borderedProminent)
+                                        .buttonStyle(PloegPrimaryButtonStyle())
                                         .controlSize(.small)
                                     }
 
@@ -666,7 +605,7 @@ struct SettingsView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.primary.opacity(0.04))
+                                        .fill(PloegTheme.canvas)
                                 )
                             }
                         }
@@ -688,23 +627,9 @@ private struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-                .foregroundStyle(.primary)
-
+        PloegCard(title: title, systemImage: systemImage) {
             content
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.74))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
     }
 }
 
@@ -713,38 +638,25 @@ private struct PermissionRow: View {
     let granted: Bool
 
     var body: some View {
-        HStack {
-            Label(
-                title,
-                systemImage: granted ? "checkmark.circle.fill" : "xmark.circle.fill"
-            )
-            .foregroundStyle(granted ? .green : .red)
-
+        HStack(spacing: 12) {
+            Image(systemName: title == UserFacingMessage.microphoneTitle ? "mic" : "accessibility")
+                .font(.system(size: 18))
+                .foregroundStyle(PloegTheme.muted)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(PloegTheme.ink)
+                Text(title == UserFacingMessage.microphoneTitle
+                     ? UserFacingMessage.microphonePurpose : UserFacingMessage.accessibilityPurpose)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PloegTheme.muted)
+            }
             Spacer()
-
-            Text(granted ? "Allowed" : "Missing")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            PloegStatusPill(granted ? UserFacingMessage.allowedStatus : UserFacingMessage.permissionNeededStatus,
+                            systemImage: granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
+                            color: granted ? PloegTheme.success : PloegTheme.warning)
         }
-    }
-}
-
-private struct StatusBadge: View {
-    let title: String
-    let isGood: Bool
-
-    var body: some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill((isGood ? Color.green : Color.red).opacity(0.16))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke((isGood ? Color.green : Color.red).opacity(0.45), lineWidth: 1)
-            )
+        .padding(.vertical, 6)
     }
 }
