@@ -646,12 +646,11 @@ final class AppCoordinator: ObservableObject {
                     throw WhisperTranscriberError.whisperCLINotFound(settings.whisperCLIPath)
                 }
             }
-            recordingModelURL = try await modelManager.verifiedInstalledURL(for: selectedModel)
-            await modelWarmupTask?.value
-            if let recordingModelURL {
-                try await transcriber.preloadModel(at: recordingModelURL, backend: selectedModel.backend)
-            }
-            lastTimings = DictationTimings(preparation: DictationTimings.seconds(preparationStarted.duration(to: .now)))
+            // Only check installation here. Hashing and loading a cold model must
+            // never delay opening the microphone.
+            guard modelManager.isDownloaded(selectedModel) else { throw ModelManagerError.modelNotInstalled }
+            recordingModelURL = try modelManager.localURL(for: selectedModel)
+            lastTimings = DictationTimings()
             try Task.checkCancellation()
             guard !isShuttingDown else { return }
         } catch {
@@ -704,7 +703,9 @@ final class AppCoordinator: ObservableObject {
             isCaptureActive = true
             captureDeviceID = captureInput?.id
             recordingFeedbackPlayer.playStartCue()
+            lastTimings.preparation = DictationTimings.seconds(preparationStarted.duration(to: .now))
             state = .listening(startedAt: Date())
+            scheduleSelectedModelWarmup()
             if recordingTranscriptionSelection?.liveDictation == true {
                 startLiveDictation()
             }
@@ -815,9 +816,8 @@ final class AppCoordinator: ObservableObject {
                     samples: samples, model: selection.model, localModelURL: liveModelURL,
                     language: selection.language, whisperCLIPath: selection.whisperCLIPath
                 )
-                let transcriber = self.transcriber
                 let started = ContinuousClock.now
-                let task = Task { try await transcriber.transcribe(request) }
+                let task = Task { try await self.transcribeWithPreparedModel(request) }
                 transcriptionTask = task
                 defer { transcriptionTask = nil }
                 result = try await task.value
@@ -918,11 +918,24 @@ final class AppCoordinator: ObservableObject {
         hasRetainedRecording = false
     }
 
+    private func transcribeWithPreparedModel(_ request: TranscriptionRequest) async throws -> TranscriptResult {
+        // An idle warmup may still be loading. Capture continues while we wait,
+        // and the tracked transcription task owns cancellation during shutdown.
+        await modelWarmupTask?.value
+        try Task.checkCancellation()
+        guard !isShuttingDown else { throw CancellationError() }
+        _ = try await modelManager.verifiedInstalledURL(for: request.model)
+        try Task.checkCancellation()
+        try await transcriber.preloadModel(at: request.localModelURL, backend: request.model.backend)
+        try Task.checkCancellation()
+        guard !isShuttingDown else { throw CancellationError() }
+        return try await transcriber.transcribe(request)
+    }
+
     private func transcribeRetainedRecording(deliverToOriginalTarget: Bool) async throws {
         guard let request = retainedRequest else { return }
-        let transcriber = self.transcriber
         let transcriptionStarted = ContinuousClock.now
-        let task = Task { try await transcriber.transcribe(request) }
+        let task = Task { try await self.transcribeWithPreparedModel(request) }
         transcriptionTask = task
         defer { transcriptionTask = nil }
         let result = try await task.value
@@ -1045,13 +1058,14 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func scheduleSelectedModelWarmup(releaseCurrentModels: Bool = false) {
-        guard canManageModels else { return }
+        // Loading may run alongside capture. Releasing models still requires idle.
+        guard canManageModels || (isCaptureActive && !releaseCurrentModels) else { return }
         idleUnloadTask?.cancel()
         if releaseCurrentModels {
             modelWarmupTask?.cancel()
             warmingSelection = nil
         }
-        let model = selectedModel()
+        let model = isCaptureActive ? recordingTranscriptionSelection?.model : selectedModel()
         let modelURL = model.flatMap { modelManager.isDownloaded($0) ? try? modelManager.localURL(for: $0) : nil }
         let runtimeReady: Bool
         switch model?.backend {
@@ -1077,7 +1091,9 @@ final class AppCoordinator: ObservableObject {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             }
             await previousWarmup?.value
-            guard !Task.isCancelled, let self, self.canManageModels else { return }
+            guard !Task.isCancelled, let self else { return }
+            let preparesRecording = self.isCaptureActive && self.recordingTranscriptionSelection?.model.id == model?.id
+            guard self.canManageModels || preparesRecording else { return }
             self.isPreparingModel = true
             self.preparationError = nil
             defer {
@@ -1087,11 +1103,11 @@ final class AppCoordinator: ObservableObject {
                     self.scheduleIdleUnload()
                 }
             }
-            if releaseCurrentModels { await transcriber.releasePreloadedModels() }
+            if releaseCurrentModels, self.canManageModels { await transcriber.releasePreloadedModels() }
             guard !Task.isCancelled, runtimeReady, let model, let modelURL else { return }
             do {
                 _ = try await self.modelManager.verifiedInstalledURL(for: model)
-                guard !Task.isCancelled, self.canManageModels else { return }
+                guard !Task.isCancelled, !self.isShuttingDown else { return }
                 try await transcriber.preloadModel(at: modelURL, backend: model.backend)
             } catch is CancellationError {
                 return
@@ -1132,6 +1148,7 @@ final class AppCoordinator: ObservableObject {
         languageFeedbackTask?.cancel()
         idleUnloadTask?.cancel()
         liveTask?.cancel()
+        modelWarmupTask?.cancel()
         transcriptionTask?.cancel()
         insertionTask?.cancel()
         if isCaptureActive {

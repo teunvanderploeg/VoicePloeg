@@ -241,12 +241,12 @@ final class AppCoordinatorTests: XCTestCase {
         XCTAssertNotNil(fixture.coordinator.configurationError)
     }
 
-    func testMissingModelAndCorruptionPreventMicrophoneCapture() async throws {
+    func testMissingOrWrongSizeModelPreventsMicrophoneCapture() async throws {
         for missing in [false, true] {
             let fixture = try Fixture()
             defer { fixture.cleanup() }
             if missing { try FileManager.default.removeItem(at: fixture.modelURL) }
-            else { try Data("bad model!".utf8).write(to: fixture.modelURL) }
+            else { try Data("bad".utf8).write(to: fixture.modelURL) }
             await fixture.coordinator.toggleRecording()
             let starts = await fixture.recorder.startCount
             XCTAssertEqual(starts, 0)
@@ -316,6 +316,53 @@ final class AppCoordinatorTests: XCTestCase {
         let models = await fixture.transcriber.warmupModels
         XCTAssertEqual(maximum, 1)
         XCTAssertEqual(models, ["test-multilingual.bin", "test-model.bin"])
+    }
+
+    func testRecordingStartsWhileModelWarmupIsBlocked() async throws {
+        for live in [false, true] {
+            let fixture = try Fixture(includeMultilingualModel: true, live: live)
+            defer { fixture.cleanup() }
+            try await waitUntil { await fixture.transcriber.warmupModels.count == 1 }
+            await fixture.transcriber.suspendNextWarmup()
+            fixture.coordinator.cycleLanguage()
+            try await waitUntil { await fixture.transcriber.activeWarmups == 1 }
+
+            // A cold model can take seconds. Starting capture must not await it.
+            let start = Task { await fixture.coordinator.toggleRecording() }
+            try await waitUntil { await fixture.recorder.startCount == 1 }
+            guard case .listening = fixture.coordinator.state else {
+                await fixture.coordinator.shutdown()
+                await start.value
+                return XCTFail("Microphone must be ready while the model is loading")
+            }
+            let activeWarmups = await fixture.transcriber.activeWarmups
+            XCTAssertEqual(activeWarmups, 1)
+            await fixture.recorder.append(speech(1))
+            let stop = Task { await fixture.coordinator.toggleRecording() }
+            try await waitUntil { await fixture.recorder.stopCount == 1 }
+            await fixture.coordinator.shutdown()
+            await start.value
+            await stop.value
+            let requests = await fixture.transcriber.requests
+            XCTAssertTrue(requests.isEmpty)
+            XCTAssertEqual(fixture.coordinator.state, .idle)
+        }
+    }
+
+    func testInvalidModelRetainsCapturedAudioWithoutRunningInference() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await waitUntil { await fixture.transcriber.warmupModels.count == 1 }
+        // Keep the installed size while invalidating the checksum.
+        try Data("bad model!".utf8).write(to: fixture.modelURL)
+        await fixture.coordinator.toggleRecording()
+        guard case .listening = fixture.coordinator.state else { return XCTFail("Expected capture to start") }
+        await fixture.coordinator.toggleRecording()
+        XCTAssertTrue(fixture.coordinator.hasRetainedRecording)
+        let requests = await fixture.transcriber.requests
+        XCTAssertTrue(requests.isEmpty)
+        guard case .error = fixture.coordinator.state else { return XCTFail("Expected verification error") }
+        await fixture.coordinator.shutdown()
     }
 
     func testPendingLanguageWarmupDoesNotUnloadModelsDuringRecording() async throws {
