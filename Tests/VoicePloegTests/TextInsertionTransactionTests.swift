@@ -3,8 +3,8 @@ import XCTest
 
 @MainActor
 final class TextInsertionTransactionTests: XCTestCase {
-    func testOpenAIComposersPasteWithoutAttemptingAccessibilityWrites() async throws {
-        for bundleIdentifier in ["com.openai.codex", "com.openai.chat"] {
+    func testComposersPasteWithoutAttemptingAccessibilityWrites() async throws {
+        for bundleIdentifier in ["com.openai.codex", "com.openai.chat", "com.t3tools.t3code"] {
             var steps: [String] = []
             let method = try await TextInsertionTransaction.insert(
                 bundleIdentifier: bundleIdentifier,
@@ -22,7 +22,9 @@ final class TextInsertionTransactionTests: XCTestCase {
     }
 
     func testOtherAppsKeepAccessibilityInsertion() async throws {
-        for bundleIdentifier in ["com.apple.TextEdit", "com.google.Chrome", "com.openai.codex.other", nil] {
+        for bundleIdentifier in [
+            "com.apple.TextEdit", "com.google.Chrome", "com.openai.codex.other", "com.t3tools.t3code.other", nil
+        ] {
             let method = try await TextInsertionTransaction.insert(
                 bundleIdentifier: bundleIdentifier,
                 insertUsingAccessibility: { true },

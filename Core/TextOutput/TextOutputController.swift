@@ -87,7 +87,7 @@ enum TextOutputApplicationPolicy {
         // Use the editor's paste handler in these apps instead of assuming that
         // an accepted AXSelectedText write has updated the composer.
         switch bundleIdentifier {
-        case "com.openai.codex", "com.openai.chat":
+        case "com.openai.codex", "com.openai.chat", "com.t3tools.t3code":
             return true
         default:
             return false
