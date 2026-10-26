@@ -1,5 +1,11 @@
 # VoicePloeg
 
+[**Download VoicePloeg for Mac**](https://github.com/teunvanderploeg/VoicePloeg/releases/latest/download/VoicePloeg-macOS-Universal.dmg)
+
+Apple silicon and Intel. macOS 14.0 or later.
+Open the disk image and drag VoicePloeg to Applications.
+[ZIP download and checksums](https://github.com/teunvanderploeg/VoicePloeg/releases/latest).
+
 Native macOS (Swift + SwiftUI) menu bar app for offline dictation:
 - Global hotkey toggles recording
 - Selectable local transcription via `whisper.cpp`, CrisperWhisper 2.0, or Underdog Bark 3.0
